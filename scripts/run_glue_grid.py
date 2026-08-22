@@ -15,6 +15,7 @@ def is_power_of_two(value: int) -> bool:
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tasks", nargs="+", default=DEFAULT_TASKS)
+    parser.add_argument("--dataset_name", type=str, default="nyu-mll/glue")
     parser.add_argument("--masks_dir", type=str, default="masks")
     parser.add_argument("--output_root", type=str, default="outputs/grid")
     parser.add_argument("--results_file", type=str, default="results/glue_grid.jsonl")
@@ -158,6 +159,8 @@ def main():
                 "scripts/benchmark_roberta_glue.py",
                 "--task_name",
                 task,
+                "--dataset_name",
+                args.dataset_name,
                 "--do_train",
                 "--do_eval",
                 "--max_length",

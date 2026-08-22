@@ -24,6 +24,9 @@ from cayley.glue import (
 from cayley.roberta_sparse_attention import configure_sparse_attention, load_mask
 
 
+DEFAULT_GLUE_DATASET = "nyu-mll/glue"
+
+
 def build_training_arguments(**kwargs) -> TrainingArguments:
     """Handle Transformers versions that renamed evaluation_strategy."""
     params = inspect.signature(TrainingArguments.__init__).parameters
@@ -38,6 +41,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="FacebookAI/roberta-base")
     parser.add_argument("--task_name", type=str, default="mrpc")
+    parser.add_argument("--dataset_name", type=str, default=DEFAULT_GLUE_DATASET)
     parser.add_argument("--output_dir", type=str, default="outputs/roberta_glue")
     parser.add_argument("--cache_dir", type=str, default=None)
     parser.add_argument("--mask_path", type=str, default=None)
@@ -89,7 +93,7 @@ def main():
     else:
         print("No mask_path supplied; running dense attention.")
 
-    dataset = load_dataset("glue", task_name)
+    dataset = load_dataset(args.dataset_name, task_name)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir, use_fast=True)
 
     encoded = dataset.map(
@@ -169,6 +173,7 @@ def main():
 
     payload = {
         "task_name": task_name,
+        "dataset_name": args.dataset_name,
         "model_name": args.model_name,
         "mask_name": args.mask_name,
         "mask_path": args.mask_path,
