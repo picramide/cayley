@@ -16,16 +16,36 @@ Run dense RoBERTa on one GLUE task:
 python scripts/benchmark_roberta_glue.py --task_name mrpc --do_train --do_eval --output_dir outputs/mrpc_dense
 ```
 
-Run the full MRPC comparison from the earlier setup, using dense attention and
-the local bidirectional window mask:
+Run benchmark X on mask Y by passing `--task_name`, `--mask_name`, and
+optionally `--mask_path` to `scripts/benchmark_roberta_glue.py`.
+
+Full MRPC dense run:
 
 ```bash
-python scripts/run_mrpc_dense_window.py
+python scripts/benchmark_roberta_glue.py \
+  --task_name mrpc \
+  --mask_name dense \
+  --do_train --do_eval \
+  --output_dir outputs/mrpc_dense \
+  --results_file results/mrpc_dense.jsonl
 ```
 
-This uses full MRPC train/validation splits, `max_length=128`, `window=16`,
-5 epochs, train batch size 8, eval batch size 16, learning rate `2e-5`, and
-seed 42. Results are written to `results/mrpc_dense_window.jsonl`.
+Full MRPC local-window run:
+
+```bash
+python scripts/generate_masks.py --kind local --seq 128 --window 16 --output masks/local_w16_128.pt
+
+python scripts/benchmark_roberta_glue.py \
+  --task_name mrpc \
+  --mask_name local_w16 \
+  --mask_path masks/local_w16_128.pt \
+  --do_train --do_eval \
+  --output_dir outputs/mrpc_local_w16 \
+  --results_file results/mrpc_local_w16.jsonl
+```
+
+The Colab notebook currently runs those two MRPC commands and downloads the two
+separate result files.
 
 Run a sparse-mask RoBERTa benchmark:
 
