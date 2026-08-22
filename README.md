@@ -50,6 +50,10 @@ For a quick smoke test:
 python scripts/run_glue_grid.py --tasks mrpc --max_train_samples 64 --max_eval_samples 64 --epochs 0.1
 ```
 
+The Colab notebook version of this smoke run automatically downloads
+`results/smoke_all_variants.jsonl` to your browser after the benchmark command
+finishes.
+
 See `BENCHMARKING_NOTES.md` for what was copied from the previous benchmarking setup and what the patch measures.
 
 ## Colab
