@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+
+DEFAULT_TASKS = ["mrpc", "sst2", "qnli", "cola", "rte", "stsb", "mnli"]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tasks", nargs="+", default=DEFAULT_TASKS)
+    parser.add_argument("--masks_dir", type=str, default="masks")
+    parser.add_argument("--output_root", type=str, default="outputs/grid")
+    parser.add_argument("--results_file", type=str, default="results/glue_grid.jsonl")
+    parser.add_argument("--max_length", type=int, default=128)
+    parser.add_argument("--epochs", type=float, default=5.0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--train_batch_size", type=int, default=8)
+    parser.add_argument("--eval_batch_size", type=int, default=16)
+    parser.add_argument("--learning_rate", type=float, default=2e-5)
+    parser.add_argument("--dry_run", action="store_true")
+    return parser.parse_args()
+
+
+def run(cmd: list[str], dry_run: bool) -> None:
+    print("+", " ".join(cmd), flush=True)
+    if not dry_run:
+        subprocess.run(cmd, check=True)
+
+
+def generate_default_masks(args) -> list[tuple[str, Path | None]]:
+    masks_dir = Path(args.masks_dir)
+    masks_dir.mkdir(parents=True, exist_ok=True)
+
+    specs = [
+        ("hypercube", ["--kind", "hypercube", "--seq", str(args.max_length)]),
+        (
+            "window_dilations",
+            [
+                "--kind",
+                "window_dilations",
+                "--seq",
+                str(args.max_length),
+                "--window",
+                "4",
+                "--dilations",
+                "8,16,32,64",
+            ],
+        ),
+        (
+            "random_circulant_d8",
+            [
+                "--kind",
+                "random_circulant",
+                "--seq",
+                str(args.max_length),
+                "--degree",
+                "8",
+                "--seed",
+                str(args.seed),
+            ],
+        ),
+        (
+            "random_circulant_d16",
+            [
+                "--kind",
+                "random_circulant",
+                "--seq",
+                str(args.max_length),
+                "--degree",
+                "16",
+                "--seed",
+                str(args.seed),
+            ],
+        ),
+        (
+            "local_w16",
+            ["--kind", "local", "--seq", str(args.max_length), "--window", "16"],
+        ),
+    ]
+
+    masks: list[tuple[str, Path | None]] = [("dense", None)]
+    for name, spec in specs:
+        out = masks_dir / f"{name}_{args.max_length}.pt"
+        run([sys.executable, "scripts/generate_masks.py", *spec, "--output", str(out)], args.dry_run)
+        masks.append((name, out))
+    return masks
+
+
+def main():
+    args = parse_args()
+    masks = generate_default_masks(args)
+
+    for task in args.tasks:
+        for mask_name, mask_path in masks:
+            cmd = [
+                sys.executable,
+                "scripts/benchmark_roberta_glue.py",
+                "--task_name",
+                task,
+                "--do_train",
+                "--do_eval",
+                "--max_length",
+                str(args.max_length),
+                "--num_train_epochs",
+                str(args.epochs),
+                "--seed",
+                str(args.seed),
+                "--per_device_train_batch_size",
+                str(args.train_batch_size),
+                "--per_device_eval_batch_size",
+                str(args.eval_batch_size),
+                "--learning_rate",
+                str(args.learning_rate),
+                "--output_dir",
+                str(Path(args.output_root) / task / mask_name),
+                "--results_file",
+                args.results_file,
+            ]
+            if mask_path is not None:
+                cmd.extend(["--mask_path", str(mask_path)])
+            run(cmd, args.dry_run)
+
+
+if __name__ == "__main__":
+    main()

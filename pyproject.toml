@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cayley-roberta-benchmarks"
+version = "0.1.0"
+description = "Cayley graph sparse-attention masks and RoBERTa GLUE benchmarks."
+requires-python = ">=3.10"
+dependencies = [
+  "torch",
+  "transformers>=4.44",
+  "datasets>=2.20",
+  "evaluate>=0.4",
+  "accelerate>=0.33",
+  "scikit-learn>=1.3",
+  "numpy",
+  "pandas",
+  "tqdm",
+]
+
+[tool.setuptools.packages.find]
+include = ["cayley*"]
