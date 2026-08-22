@@ -21,8 +21,24 @@ This repo includes `colab_roberta_cayley_setup.ipynb`, a bootstrap notebook inte
 5. Set `PROJECT_SOURCE` in the notebook:
 
    ```python
-   PROJECT_SOURCE = "drive"   # "drive", "github", or "upload"
+   PROJECT_SOURCE = "github"   # "drive", "github", or "upload"
    ```
+
+## Private GitHub repo setup
+
+If the GitHub repo is private, Colab needs a token to clone it.
+
+1. Create a GitHub fine-grained personal access token with read access to the repo contents.
+2. In Colab, open the key icon in the left sidebar.
+3. Add a secret named:
+
+   ```text
+   GITHUB_TOKEN
+   ```
+
+4. Paste the token value and enable notebook access to the secret.
+
+Do not paste the token directly into the notebook.
 
 ## How file access works
 

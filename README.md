@@ -20,4 +20,6 @@ GITHUB_REPO = "https://github.com/picramide/cayley.git"
 GITHUB_BRANCH = "main"
 ```
 
+If the repo is private, add a Colab Secret named `GITHUB_TOKEN` with read access to the repository contents before running the clone cell.
+
 See `COLAB.md` for details.
