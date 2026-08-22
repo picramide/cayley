@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import inspect
 import json
 from pathlib import Path
 
@@ -21,6 +22,16 @@ from cayley.glue import (
     preprocess_examples,
 )
 from cayley.roberta_sparse_attention import configure_sparse_attention, load_mask
+
+
+def build_training_arguments(**kwargs) -> TrainingArguments:
+    """Handle Transformers versions that renamed evaluation_strategy."""
+    params = inspect.signature(TrainingArguments.__init__).parameters
+    if "eval_strategy" not in params and "eval_strategy" in kwargs:
+        kwargs["evaluation_strategy"] = kwargs.pop("eval_strategy")
+    if "evaluation_strategy" not in params and "evaluation_strategy" in kwargs:
+        kwargs["eval_strategy"] = kwargs.pop("evaluation_strategy")
+    return TrainingArguments(**kwargs)
 
 
 def parse_args():
@@ -109,7 +120,7 @@ def main():
 
     model = RobertaForSequenceClassification.from_pretrained(args.model_name, **model_kwargs)
 
-    training_args = TrainingArguments(
+    training_args = build_training_arguments(
         output_dir=args.output_dir,
         run_name=args.run_name,
         do_train=args.do_train,
