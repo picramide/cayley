@@ -16,6 +16,17 @@ Run dense RoBERTa on one GLUE task:
 python scripts/benchmark_roberta_glue.py --task_name mrpc --do_train --do_eval --output_dir outputs/mrpc_dense
 ```
 
+Run the full MRPC comparison from the earlier setup, using dense attention and
+the local bidirectional window mask:
+
+```bash
+python scripts/run_mrpc_dense_window.py
+```
+
+This uses full MRPC train/validation splits, `max_length=128`, `window=16`,
+5 epochs, train batch size 8, eval batch size 16, learning rate `2e-5`, and
+seed 42. Results are written to `results/mrpc_dense_window.jsonl`.
+
 Run a sparse-mask RoBERTa benchmark:
 
 ```bash
