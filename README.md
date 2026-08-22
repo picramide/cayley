@@ -27,10 +27,27 @@ python scripts/benchmark_roberta_glue.py \
   --results_file results/glue_runs.jsonl
 ```
 
-Run the default dense plus mask grid over major GLUE tasks:
+Run all supported GLUE benchmarks over every built-in attention pattern, including dense:
 
 ```bash
-python scripts/run_glue_grid.py --tasks mrpc sst2 qnli cola rte stsb mnli
+python scripts/run_glue_grid.py
+```
+
+By default this runs `mrpc`, `sst2`, `mnli`, `stsb`, `qnli`, `cola`, `rte`, and `qqp` over:
+
+- dense baseline with no mask
+- dense boolean mask
+- hypercube Cayley mask
+- circulant Cayley mask
+- window plus dilation Cayley mask
+- random circulant Cayley masks with degrees 8 and 16
+- local window mask
+- BigBird-style mask
+
+For a quick smoke test:
+
+```bash
+python scripts/run_glue_grid.py --tasks mrpc --max_train_samples 64 --max_eval_samples 64 --epochs 0.1
 ```
 
 See `BENCHMARKING_NOTES.md` for what was copied from the previous benchmarking setup and what the patch measures.

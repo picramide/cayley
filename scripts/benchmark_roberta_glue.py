@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default="outputs/roberta_glue")
     parser.add_argument("--cache_dir", type=str, default=None)
     parser.add_argument("--mask_path", type=str, default=None)
+    parser.add_argument("--mask_name", type=str, default="dense")
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--results_file", type=str, default=None)
 
@@ -158,6 +159,7 @@ def main():
     payload = {
         "task_name": task_name,
         "model_name": args.model_name,
+        "mask_name": args.mask_name,
         "mask_path": args.mask_path,
         "seed": args.seed,
         "max_length": args.max_length,

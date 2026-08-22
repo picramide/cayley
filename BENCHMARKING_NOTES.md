@@ -35,6 +35,8 @@ writing or using an optimized sparse attention kernel.
 - `scripts/generate_masks.py` creates boolean keep masks.
 - `scripts/benchmark_roberta_glue.py` trains/evaluates RoBERTa on GLUE with the
   same mask semantics as the previous scripts.
+- `scripts/run_glue_grid.py` runs every supported GLUE benchmark over every
+  built-in attention pattern, including the dense baseline.
 - `cayley/roberta_sparse_attention.py` contains the RoBERTa attention patch.
 - `cayley/masks.py` contains reusable mask builders.
 
@@ -67,3 +69,12 @@ python scripts/benchmark_roberta_glue.py \
 
 For fair comparisons, keep seed, max length, batch size, learning rate, epochs,
 and training/eval split identical between dense and sparse runs.
+
+Full grid:
+
+```bash
+python scripts/run_glue_grid.py
+```
+
+This writes one JSON object per run to `results/glue_grid.jsonl`, including
+`task_name`, `mask_name`, `mask_path`, and the resulting metrics.
