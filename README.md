@@ -16,7 +16,7 @@ For GitHub-based runs, set:
 
 ```python
 PROJECT_SOURCE = "github"
-GITHUB_REPO = "https://github.com/YOUR_USER/cayley.git"
+GITHUB_REPO = "https://github.com/picramide/cayley.git"
 GITHUB_BRANCH = "main"
 ```
 
