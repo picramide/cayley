@@ -5,6 +5,7 @@ from pathlib import Path
 from cayley.masks import (
     BigBirdMaskConfig,
     build_bigbird_mask,
+    build_bipartite_cayley_mask,
     build_circulant_cayley_mask,
     build_dense_mask,
     build_hypercube_mask,
@@ -32,6 +33,7 @@ def parse_args():
         "window_dilations",
         "random_circulant",
         "bigbird",
+        "bipartite",
     ])
     parser.add_argument("--seq", type=int, default=128)
     parser.add_argument("--heads", type=int, default=12)
@@ -48,6 +50,9 @@ def parse_args():
     parser.add_argument("--num_random_blocks", type=int, default=1)
     parser.add_argument("--window_block_left", type=int, default=1)
     parser.add_argument("--window_block_right", type=int, default=1)
+    parser.add_argument("--premise_len", type=int, default=64)
+    parser.add_argument("--local_window", type=int, default=3)
+    parser.add_argument("--cross_window", type=int, default=2)
     return parser.parse_args()
 
 
@@ -95,6 +100,15 @@ def main():
             seed=args.seed,
         )
         mask = build_bigbird_mask(args.seq, args.heads, config)
+    elif args.kind == "bipartite":
+        mask = build_bipartite_cayley_mask(
+            seq_len=args.seq,
+            premise_len=args.premise_len,
+            local_window=args.local_window,
+            cross_window=args.cross_window,
+            global_tokens=1,
+            include_self=True,
+        )
     else:
         raise AssertionError(args.kind)
 

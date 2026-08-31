@@ -183,6 +183,72 @@ def build_bigbird_mask(seq_len: int, n_heads: int, config: BigBirdMaskConfig) ->
 
     return mask
 
+def build_bipartite_cayley_mask(
+    seq_len: int,
+    premise_len: int,
+    local_window: int = 3,
+    cross_window: int = 2,
+    global_tokens: int = 1,
+    include_self: bool = True,
+) -> torch.Tensor:
+    """Build a Z_2 x Z_m Direct Product Cayley Graph mask for NLI tasks.
+    
+    The premise spans indices [0, premise_len - 1].
+    The hypothesis spans indices [premise_len, seq_len - 1].
+    The first `global_tokens` act as global hubs (e.g., [CLS] tokens).
+    """
+    if seq_len <= 0:
+        raise ValueError("seq_len must be positive")
+    if premise_len < 0 or premise_len > seq_len:
+        raise ValueError("premise_len must be between 0 and seq_len")
+    if global_tokens < 0:
+        raise ValueError("global_tokens must be non-negative")
+
+    mask = torch.zeros(seq_len, seq_len, dtype=torch.bool)
+    hypo_len = seq_len - premise_len
+    
+    # Calculate the max length for the Z_m dimension
+    m = max(premise_len - global_tokens, hypo_len)
+
+    # 1. Global Hub Assignment
+    if global_tokens > 0:
+        bound = min(global_tokens, seq_len)
+        mask[:, :bound] = True
+        mask[:bound, :] = True
+
+    # 2. Intra-Sentence Parsing Subgraph
+    for i in range(global_tokens, seq_len):
+        left = max(global_tokens, i - local_window)
+        right = min(seq_len, i + local_window + 1)
+        
+        # Restrict edges to remain within their respective segments
+        if i < premise_len:
+            right = min(right, premise_len)
+        else:
+            left = max(left, premise_len)
+            
+        mask[i, left:right] = True
+
+    # 3. Inter-Sentence Cross Subgraph
+    if m > 0:
+        # Generate the dyadic chords based on the maximum segment length
+        dyadic_chords = {2**k for k in range(2, int(math.log2(max(1, m))) + 1)}
+        
+        for i in range(global_tokens, premise_len):
+            x = i - global_tokens
+            for j in range(max(global_tokens, premise_len), seq_len):
+                y = j - premise_len
+                
+                dist = abs(x - y)
+                if dist <= cross_window or dist in dyadic_chords:
+                    mask[i, j] = True
+                    mask[j, i] = True
+
+    # 4. Self-Attention Alignment
+    if include_self:
+        mask.fill_diagonal_(True)
+        
+    return mask
 
 def save_mask(mask: torch.Tensor, output_path: str) -> None:
     torch.save(mask.bool().contiguous(), output_path)
