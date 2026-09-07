@@ -10,6 +10,7 @@ from cayley.masks import (
     build_dense_mask,
     build_hypercube_mask,
     build_local_mask,
+    build_nearly_dense_cayley_mask,
     build_random_circulant_mask,
     build_window_dilation_mask,
     mask_stats,
@@ -34,6 +35,7 @@ def parse_args():
         "random_circulant",
         "bigbird",
         "bipartite",
+        "nearly_dense",
     ])
     parser.add_argument("--seq", type=int, default=128)
     parser.add_argument("--heads", type=int, default=12)
@@ -53,6 +55,7 @@ def parse_args():
     parser.add_argument("--premise_len", type=int, default=64)
     parser.add_argument("--local_window", type=int, default=3)
     parser.add_argument("--cross_window", type=int, default=2)
+    parser.add_argument("--drop_degree", type=int, default=4)
     return parser.parse_args()
 
 
@@ -108,6 +111,14 @@ def main():
             cross_window=args.cross_window,
             global_tokens=1,
             include_self=True,
+        )
+    elif args.kind == "nearly_dense":
+        mask = build_nearly_dense_cayley_mask(
+            args.seq,
+            drop_degree=args.drop_degree,
+            seed=args.seed,
+            include_inverse=include_inverse,
+            include_self=include_self,
         )
     else:
         raise AssertionError(args.kind)

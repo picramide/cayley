@@ -250,5 +250,51 @@ def build_bipartite_cayley_mask(
         
     return mask
 
+def build_nearly_dense_cayley_mask(
+    seq_len: int,
+    drop_degree: int,
+    seed: int,
+    include_inverse: bool = True,
+    include_self: bool = True,
+) -> torch.Tensor:
+    """Builds a nearly dense Cayley graph mask over Z_n.
+    
+    Starts with a fully connected graph and randomly drops a small 
+    number of generator offsets (drop_degree) to test high-density pruning.
+    """
+    if seq_len <= 0:
+        raise ValueError("seq_len must be positive")
+    if drop_degree < 0 or drop_degree >= seq_len:
+        raise ValueError("drop_degree must be between 0 and seq_len - 1")
+
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(seed)
+    
+    # Start with all possible non-zero offsets for a dense graph
+    all_possible = torch.arange(1, seq_len)
+    
+    # Randomly shuffle and pick the offsets to drop
+    shuffled_indices = torch.randperm(seq_len - 1, generator=gen)
+    drop_candidates = all_possible[shuffled_indices][:drop_degree].tolist()
+    
+    drop_set = set(drop_candidates)
+    
+    # If undirected, dropping an offset means we must also drop its inverse
+    if include_inverse:
+        inverses = {(seq_len - g) % seq_len for g in drop_set}
+        drop_set.update(inverses)
+        
+    # The generators we keep are everything else
+    kept_generators = [g for g in range(1, seq_len) if g not in drop_set]
+    
+    # Pass include_inverse=False because we already explicitly handled the 
+    # symmetry by dropping symmetric pairs from the kept list.
+    return build_circulant_cayley_mask(
+        seq_len=seq_len,
+        generators=kept_generators,
+        include_inverse=False,
+        include_self=include_self,
+    )
+
 def save_mask(mask: torch.Tensor, output_path: str) -> None:
     torch.save(mask.bool().contiguous(), output_path)
