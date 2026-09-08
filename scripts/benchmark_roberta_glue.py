@@ -99,9 +99,54 @@ def main():
     if dataset_path.is_dir():
         # Local dataset - load with default config
         dataset = load_dataset(args.dataset_name, "default")
+        # For local datasets, we need to infer the column names from the schema
+        # Get column names from the first split
+        first_split = list(dataset.keys())[0]
+        columns = dataset[first_split].column_names
+        # Check for common column name patterns
+        has_sentence1 = 'sentence1' in columns
+        has_sentence2 = 'sentence2' in columns
+        has_question1 = 'question1' in columns
+        has_question2 = 'question2' in columns
+        has_premise = 'premise' in columns
+        has_hypothesis = 'hypothesis' in columns
+        has_question = 'question' in columns
+        has_sentence = 'sentence' in columns
+
+        # Map task to column names based on what's available
+        if task_name == "mrpc":
+            sentence1_key = "sentence1" if has_sentence1 else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = "sentence2" if has_sentence2 else None
+        elif task_name == "qqp":
+            sentence1_key = "question1" if has_question1 else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = "question2" if has_question2 else None
+        elif task_name == "qnli":
+            sentence1_key = "question" if has_question else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = "sentence" if has_sentence else None
+        elif task_name == "rte":
+            sentence1_key = "sentence1" if has_sentence1 else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = "sentence2" if has_sentence2 else None
+        elif task_name == "sst2":
+            sentence1_key = "sentence" if has_sentence else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = None
+        elif task_name == "cola":
+            sentence1_key = "sentence" if has_sentence else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = None
+        elif task_name == "mnli":
+            sentence1_key = "premise" if has_premise else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = "hypothesis" if has_hypothesis else None
+        elif task_name == "stsb":
+            sentence1_key = "sentence1" if has_sentence1 else (columns[0] if len(columns) > 0 else "text")
+            sentence2_key = "sentence2" if has_sentence2 else None
+        else:
+            sentence1_key = columns[0] if len(columns) > 0 else "text"
+            sentence2_key = columns[1] if len(columns) > 1 else None
     else:
         # Remote dataset - use task_name as config
         dataset = load_dataset(args.dataset_name, task_name)
+        # Get column keys from task config
+        sentence1_key = task_config["sentence1_key"]
+        sentence2_key = task_config["sentence2_key"]
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir, use_fast=True)
 
     encoded = dataset.map(
@@ -109,8 +154,8 @@ def main():
             batch,
             tokenizer,
             args.max_length,
-            task_config["sentence1_key"],
-            task_config["sentence2_key"],
+            sentence1_key,
+            sentence2_key,
         ),
         batched=True,
     )
