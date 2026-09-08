@@ -35,6 +35,18 @@ MASK_TYPES = [
 # - Local paths: "/path/to/offline/glue/qnli", "/path/to/offline/models/roberta-base"
 BENCHMARKS = [
     {
+        "name": "mrpc",
+        "task_name": "mrpc",
+        "dataset_name": "nyu-mll/glue",
+        "model_name": "FacebookAI/roberta-base",
+        "max_length": 128,
+        "num_train_epochs": 5.0,
+        "seed": 42,
+        "per_device_train_batch_size": 8,
+        "per_device_eval_batch_size": 16,
+        "learning_rate": 2e-5,
+    },
+    {
         "name": "qqp",
         "task_name": "qqp",
         "dataset_name": "nyu-mll/glue",
