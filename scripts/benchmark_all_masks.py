@@ -30,6 +30,9 @@ MASK_TYPES = [
 ]
 
 # Benchmarks to run
+# dataset_name and model_name can be either:
+# - Remote: "nyu-mll/glue", "FacebookAI/roberta-base" (for online use)
+# - Local paths: "/path/to/offline/glue/qnli", "/path/to/offline/models/roberta-base"
 BENCHMARKS = [
     {
         "name": "qqp",
@@ -203,6 +206,12 @@ def main():
         action="store_true",
         help="Print commands without executing",
     )
+    parser.add_argument(
+        "--offline_data_dir",
+        type=str,
+        default=None,
+        help="Base directory for offline data (downloaded datasets and models)",
+    )
     args = parser.parse_args()
 
     # Determine project root (script is in scripts/, project root is parent)
@@ -222,6 +231,20 @@ def main():
     if args.skip_completed:
         completed = load_existing_results(results_file)
         print(f"Found {len(completed)} already completed benchmarks")
+
+    # Handle offline data paths
+    offline_data_dir = Path(args.offline_data_dir) if args.offline_data_dir else None
+    if offline_data_dir:
+        print(f"Offline data directory: {offline_data_dir}")
+
+    # Update benchmarks to use offline paths if specified
+    if offline_data_dir:
+        for benchmark in BENCHMARKS:
+            # Local dataset path: offline_data_dir/glue/<task_name>
+            benchmark["dataset_name"] = str(offline_data_dir / "glue" / benchmark["name"])
+            # Local model path: offline_data_dir/models/roberta-base
+            benchmark["model_name"] = str(offline_data_dir / "models" / "roberta-base")
+        print("Using offline dataset and model paths")
 
     print(f"Project root: {project_root}")
     print(f"Output base: {output_base}")

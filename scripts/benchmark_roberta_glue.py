@@ -118,6 +118,7 @@ def main():
     model_kwargs = {
         "num_labels": task_config["num_labels"],
         "cache_dir": args.cache_dir,
+        "trust_remote_code": True,
     }
     if task_config["is_regression"]:
         model_kwargs["problem_type"] = "regression"
