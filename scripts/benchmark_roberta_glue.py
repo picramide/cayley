@@ -251,10 +251,6 @@ def main():
         batched=True,
     )
 
-    # Debug: print columns in encoded dataset
-    print(f"Columns in encoded train: {encoded['train'].column_names}")
-    print(f"First example: {encoded['train'][0]}")
-
     train_dataset = subset_dataset(encoded["train"], args.max_train_samples)
     if task_name == "mnli":
         eval_dataset = subset_dataset(encoded["validation_matched"], args.max_eval_samples)
