@@ -9,6 +9,8 @@ This script runs all mask types on each of the three benchmarks (QQP, MNLI, QNLI
 and saves results as JSONL files.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -16,6 +18,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 
 # Available mask types with their arguments
@@ -116,7 +119,7 @@ def run_benchmark(
     dataset_name: str,
     model_name: str,
     mask_name: str,
-    mask_path: str | None,
+    mask_path: Optional[str],
     output_dir: str,
     results_file: str,
     run_name: str,
