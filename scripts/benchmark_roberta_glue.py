@@ -5,8 +5,7 @@ import json
 from pathlib import Path
 
 import torch
-from datasets import load_dataset
-import torch
+from datasets import load_dataset, load_from_disk
 
 from transformers import (
     AutoTokenizer,
@@ -37,24 +36,6 @@ class DataCollatorWithPaddingAndLabels(DataCollatorWithPadding):
         return batch
 
 
-class DataCollatorWithPaddingAndLabels(DataCollatorWithPadding):
-    """Data collator that includes labels column."""
-
-    def __call__(self, features):
-        # Extract labels if present
-        labels = None
-        if "labels" in features[0]:
-            labels = torch.tensor([f["labels"] for f in features])
-
-        # Call parent to collate inputs
-        batch = super().__call__(features)
-
-        # Add labels back
-        if labels is not None:
-            batch["labels"] = labels
-
-        return batch
-
 from cayley.glue import (
     compute_metrics_fn,
     get_task_config,
@@ -72,7 +53,7 @@ def build_training_arguments(**kwargs) -> TrainingArguments:
     params = inspect.signature(TrainingArguments.__init__).parameters
     if "eval_strategy" not in params and "eval_strategy" in kwargs:
         kwargs["evaluation_strategy"] = kwargs.pop("eval_strategy")
-    if "evaluation_strategy" not in params and "evaluation_strategy" in kwargs:
+    if "evaluation_strategy" not in params and "eval_strategy" in kwargs:
         kwargs["eval_strategy"] = kwargs.pop("evaluation_strategy")
     return TrainingArguments(**kwargs)
 
@@ -133,103 +114,26 @@ def main():
     else:
         print("No mask_path supplied; running dense attention.")
 
-    # For local dataset paths, use 'default' config; for remote, use task_name
-    from pathlib import Path
+    # Determine if using local or remote dataset
     dataset_path = Path(args.dataset_name)
     if dataset_path.is_dir():
-        # Local dataset - load with default config
-        dataset = load_dataset(args.dataset_name, "default")
-        # For local datasets, we need to infer the column names from the schema
-        # Get column names from the first split
-        first_split = list(dataset.keys())[0]
-        columns = dataset[first_split].column_names
-        # Check for common column name patterns
-        has_sentence1 = 'sentence1' in columns
-        has_sentence2 = 'sentence2' in columns
-        has_question1 = 'question1' in columns
-        has_question2 = 'question2' in columns
-        has_premise = 'premise' in columns
-        has_hypothesis = 'hypothesis' in columns
-        has_question = 'question' in columns
-        has_sentence = 'sentence' in columns
-
-        # Map task to column names based on what's available
-        if task_name == "mrpc":
-            sentence1_key = "sentence1" if has_sentence1 else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = "sentence2" if has_sentence2 else None
-        elif task_name == "qqp":
-            sentence1_key = "question1" if has_question1 else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = "question2" if has_question2 else None
-        elif task_name == "qnli":
-            sentence1_key = "question" if has_question else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = "sentence" if has_sentence else None
-        elif task_name == "rte":
-            sentence1_key = "sentence1" if has_sentence1 else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = "sentence2" if has_sentence2 else None
-        elif task_name == "sst2":
-            sentence1_key = "sentence" if has_sentence else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = None
-        elif task_name == "cola":
-            sentence1_key = "sentence" if has_sentence else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = None
-        elif task_name == "mnli":
-            sentence1_key = "premise" if has_premise else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = "hypothesis" if has_hypothesis else None
-        elif task_name == "stsb":
-            sentence1_key = "sentence1" if has_sentence1 else (columns[0] if len(columns) > 0 else "text")
-            sentence2_key = "sentence2" if has_sentence2 else None
-        else:
-            sentence1_key = columns[0] if len(columns) > 0 else "text"
-            sentence2_key = columns[1] if len(columns) > 1 else None
+        # Load locally saved dataset using load_from_disk
+        dataset = load_from_disk(str(args.dataset_name))
+        print(f"Loaded local dataset from {args.dataset_name}")
+        print(f"Dataset splits: {list(dataset.keys())}")
+        print(f"Column names: {dataset[list(dataset.keys())[0]].column_names}")
     else:
-        # Remote dataset - use task_name as config
+        # Load from Hugging Face hub
         dataset = load_dataset(args.dataset_name, task_name)
-        # Get column keys from task config
-        sentence1_key = task_config["sentence1_key"]
-        sentence2_key = task_config["sentence2_key"]
+        print(f"Loaded remote dataset {args.dataset_name}/{task_name}")
+
+    # Get column keys from task config
+    sentence1_key = task_config["sentence1_key"]
+    sentence2_key = task_config["sentence2_key"]
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir, use_fast=True)
 
-    def convert_to_string(batch):
-        """Convert batch to proper string format for tokenizer."""
-        result = {}
-        if isinstance(batch[sentence1_key], str):
-            # Single string - already correct
-            result[sentence1_key] = batch[sentence1_key]
-        elif isinstance(batch[sentence1_key], list):
-            # List of strings - join them
-            result[sentence1_key] = " ".join(str(x) for x in batch[sentence1_key])
-        else:
-            result[sentence1_key] = str(batch[sentence1_key])
-
-        if sentence2_key and sentence2_key in batch:
-            if isinstance(batch[sentence2_key], str):
-                result[sentence2_key] = batch[sentence2_key]
-            elif isinstance(batch[sentence2_key], list):
-                result[sentence2_key] = " ".join(str(x) for x in batch[sentence2_key])
-            else:
-                result[sentence2_key] = str(batch[sentence2_key])
-
-        return result
-
-    # Convert data to proper string format
-    dataset = dataset.map(convert_to_string, batched=False)
-
-    # Ensure label column exists and is named correctly
-    first_split = list(dataset.keys())[0]
-    if "label" in dataset[first_split].column_names and "labels" not in dataset[first_split].column_names:
-        # Rename 'label' to 'labels' (expected by Transformers)
-        dataset = dataset.rename_column("label", "labels")
-
-    # Handle ClassLabel - convert to integer labels
-    features = dataset[first_split].features
-    if "labels" in features and hasattr(features["labels"], "names"):
-        # ClassLabel with names - need to convert to integers
-        label_names = features["labels"].names
-        dataset = dataset.map(
-            lambda batch: {"labels": [label_names.index(l) if isinstance(l, str) else l for l in batch["labels"]]},
-            batched=True,
-        )
-
+    # Map to tokenize text and include labels
     def preprocess_with_labels(batch):
         """Preprocess text and include labels for model training."""
         result = preprocess_examples(
@@ -239,7 +143,7 @@ def main():
             sentence1_key,
             sentence2_key,
         )
-        # Add labels - use 'labels' column if available, otherwise 'label'
+        # Add labels
         if "labels" in batch:
             result["labels"] = batch["labels"]
         elif "label" in batch:
