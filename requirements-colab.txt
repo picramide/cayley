@@ -14,4 +14,3 @@ tqdm
 matplotlib
 seaborn
 einops
-wandb
