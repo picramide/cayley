@@ -149,6 +149,31 @@ def main():
         sentence2_key = task_config["sentence2_key"]
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir, use_fast=True)
 
+    def convert_to_string(batch):
+        """Convert batch to proper string format for tokenizer."""
+        result = {}
+        if isinstance(batch[sentence1_key], str):
+            # Single string - already correct
+            result[sentence1_key] = batch[sentence1_key]
+        elif isinstance(batch[sentence1_key], list):
+            # List of strings - join them
+            result[sentence1_key] = " ".join(str(x) for x in batch[sentence1_key])
+        else:
+            result[sentence1_key] = str(batch[sentence1_key])
+
+        if sentence2_key and sentence2_key in batch:
+            if isinstance(batch[sentence2_key], str):
+                result[sentence2_key] = batch[sentence2_key]
+            elif isinstance(batch[sentence2_key], list):
+                result[sentence2_key] = " ".join(str(x) for x in batch[sentence2_key])
+            else:
+                result[sentence2_key] = str(batch[sentence2_key])
+
+        return result
+
+    # Convert data to proper string format
+    dataset = dataset.map(convert_to_string, batched=False)
+
     encoded = dataset.map(
         lambda batch: preprocess_examples(
             batch,
