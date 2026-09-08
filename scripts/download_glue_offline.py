@@ -18,7 +18,7 @@ import os
 import sys
 from pathlib import Path
 
-from datasets import download_config, load_dataset
+from datasets import DownloadConfig, load_dataset
 from transformers import AutoConfig, AutoTokenizer, RobertaModel, RobertaForSequenceClassification
 
 
@@ -50,7 +50,7 @@ def download_datasets(output_dir: Path, cache_dir: Path | None = None, timeout: 
                 task,
                 cache_dir=str(cache_dir) if cache_dir else None,
                 trust_remote_code=True,
-                download_config=download_config.DownloadConfig(
+                download_config=DownloadConfig(
                     timeout=timeout,
                     num_proc=1,  # Single process for reliability
                 ),
