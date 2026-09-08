@@ -6,6 +6,8 @@ from pathlib import Path
 
 import torch
 from datasets import load_dataset
+import torch
+
 from transformers import (
     AutoTokenizer,
     DataCollatorWithPadding,
@@ -14,6 +16,44 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
+
+
+class DataCollatorWithPaddingAndLabels(DataCollatorWithPadding):
+    """Data collator that includes labels column."""
+
+    def __call__(self, features):
+        # Extract labels if present
+        labels = None
+        if "labels" in features[0]:
+            labels = torch.tensor([f["labels"] for f in features])
+
+        # Call parent to collate inputs
+        batch = super().__call__(features)
+
+        # Add labels back
+        if labels is not None:
+            batch["labels"] = labels
+
+        return batch
+
+
+class DataCollatorWithPaddingAndLabels(DataCollatorWithPadding):
+    """Data collator that includes labels column."""
+
+    def __call__(self, features):
+        # Extract labels if present
+        labels = None
+        if "labels" in features[0]:
+            labels = torch.tensor([f["labels"] for f in features])
+
+        # Call parent to collate inputs
+        batch = super().__call__(features)
+
+        # Add labels back
+        if labels is not None:
+            batch["labels"] = labels
+
+        return batch
 
 from cayley.glue import (
     compute_metrics_fn,
@@ -211,6 +251,10 @@ def main():
         batched=True,
     )
 
+    # Debug: print columns in encoded dataset
+    print(f"Columns in encoded train: {encoded['train'].column_names}")
+    print(f"First example: {encoded['train'][0]}")
+
     train_dataset = subset_dataset(encoded["train"], args.max_train_samples)
     if task_name == "mnli":
         eval_dataset = subset_dataset(encoded["validation_matched"], args.max_eval_samples)
@@ -255,7 +299,7 @@ def main():
         train_dataset=train_dataset if args.do_train else None,
         eval_dataset=eval_dataset if args.do_eval else None,
         processing_class=tokenizer,
-        data_collator=DataCollatorWithPadding(tokenizer=tokenizer),
+        data_collator=DataCollatorWithPaddingAndLabels(tokenizer=tokenizer),
         compute_metrics=compute_metrics_fn(task_name),
     )
 
