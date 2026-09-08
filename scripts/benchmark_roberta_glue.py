@@ -174,6 +174,12 @@ def main():
     # Convert data to proper string format
     dataset = dataset.map(convert_to_string, batched=False)
 
+    # Ensure label column exists and is named correctly
+    first_split = list(dataset.keys())[0]
+    if "label" in dataset[first_split].column_names and "labels" not in dataset[first_split].column_names:
+        # Rename 'label' to 'labels' (expected by Transformers)
+        dataset = dataset.rename_column("label", "labels")
+
     encoded = dataset.map(
         lambda batch: preprocess_examples(
             batch,
