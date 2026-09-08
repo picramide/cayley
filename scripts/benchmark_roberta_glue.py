@@ -53,10 +53,9 @@ def build_training_arguments(**kwargs) -> TrainingArguments:
     params = inspect.signature(TrainingArguments.__init__).parameters
     if "eval_strategy" not in params and "eval_strategy" in kwargs:
         kwargs["evaluation_strategy"] = kwargs.pop("eval_strategy")
-    if "evaluation_strategy" not in params and "eval_strategy" in kwargs:
+    if "evaluation_strategy" not in params and "evaluation_strategy" in kwargs:
         kwargs["eval_strategy"] = kwargs.pop("evaluation_strategy")
     return TrainingArguments(**kwargs)
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
