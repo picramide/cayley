@@ -180,6 +180,16 @@ def main():
         # Rename 'label' to 'labels' (expected by Transformers)
         dataset = dataset.rename_column("label", "labels")
 
+    # Handle ClassLabel - convert to integer labels
+    features = dataset[first_split].features
+    if "labels" in features and hasattr(features["labels"], "names"):
+        # ClassLabel with names - need to convert to integers
+        label_names = features["labels"].names
+        dataset = dataset.map(
+            lambda batch: {"labels": [label_names.index(l) if isinstance(l, str) else l for l in batch["labels"]]},
+            batched=True,
+        )
+
     def preprocess_with_labels(batch):
         """Preprocess text and include labels for model training."""
         result = preprocess_examples(
