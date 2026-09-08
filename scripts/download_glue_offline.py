@@ -18,11 +18,11 @@ import os
 import sys
 from pathlib import Path
 
-from datasets import DownloadConfig, load_dataset
+from datasets import load_dataset
 from transformers import AutoConfig, AutoTokenizer, RobertaModel, RobertaForSequenceClassification
 
 
-def download_datasets(output_dir: Path, cache_dir: Path | None = None, timeout: int = 300):
+def download_datasets(output_dir: Path, cache_dir: Path | None = None):
     """Download all GLUE datasets."""
     from datasets import load_dataset
 
@@ -40,7 +40,6 @@ def download_datasets(output_dir: Path, cache_dir: Path | None = None, timeout: 
 
     print(f"Downloading GLUE datasets to: {output_dir}")
     print(f"Cache directory: {cache_dir}")
-    print(f"Timeout per task: {timeout} seconds")
 
     for task in glue_tasks:
         print(f"\nDownloading {task}...")
@@ -50,10 +49,7 @@ def download_datasets(output_dir: Path, cache_dir: Path | None = None, timeout: 
                 task,
                 cache_dir=str(cache_dir) if cache_dir else None,
                 trust_remote_code=True,
-                download_config=DownloadConfig(
-                    timeout=timeout,
-                    num_proc=1,  # Single process for reliability
-                ),
+                num_proc=1,  # Single process for reliability
             )
             # Save to output directory
             task_dir = output_dir / "glue" / task
@@ -137,6 +133,7 @@ def main():
         default=300,
         help="Timeout in seconds for each download (default: 300)",
     )
+    # Note: datasets library handles timeout internally; timeout param is for user reference
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -156,7 +153,7 @@ def main():
 
     # Download datasets
     if not args.only_model:
-        download_datasets(output_dir, cache_dir, timeout=args.download_timeout)
+        download_datasets(output_dir, cache_dir)
 
     # Download model
     if not args.only_datasets:
