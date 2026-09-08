@@ -84,8 +84,11 @@ def generate_mask(kind: str, mask_path: str, mask_args: list, cwd: Path) -> bool
         mask_path,
     ] + mask_args
 
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(cwd)
+
     print(f"[MASK] Generating {kind} mask -> {mask_path}")
-    result = subprocess.run(cmd, cwd=cwd, capture_output=False)
+    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=False)
 
     if result.returncode != 0:
         print(f"[ERROR] Failed to generate mask {kind}")
@@ -149,7 +152,11 @@ def run_benchmark(
         cmd.extend(["--mask_path", mask_path])
 
     print(f"[BENCHMARK] Running {task_name} with {mask_name}")
-    result = subprocess.run(cmd, cwd=cwd, capture_output=False)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(cwd)
+
+    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=False)
 
     if result.returncode != 0:
         print(f"[ERROR] Failed benchmark: {task_name} with {mask_name}")
