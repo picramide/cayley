@@ -37,18 +37,19 @@ MASK_TYPES = [
 # - Remote: "nyu-mll/glue", "FacebookAI/roberta-base" (for online use)
 # - Local paths: "/path/to/offline/glue/qnli", "/path/to/offline/models/roberta-base"
 BENCHMARKS = [
-    {
-        "name": "mrpc",
-        "task_name": "mrpc",
-        "dataset_name": "nyu-mll/glue",
-        "model_name": "FacebookAI/roberta-base",
-        "max_length": 128,
-        "num_train_epochs": 5.0,
-        "seed": 42,
-        "per_device_train_batch_size": 8,
-        "per_device_eval_batch_size": 16,
-        "learning_rate": 2e-5,
-    },
+    # MRPC commented out - user requested to skip
+    # {
+    #     "name": "mrpc",
+    #     "task_name": "mrpc",
+    #     "dataset_name": "nyu-mll/glue",
+    #     "model_name": "FacebookAI/roberta-base",
+    #     "max_length": 128,
+    #     "num_train_epochs": 5.0,
+    #     "seed": 42,
+    #     "per_device_train_batch_size": 8,
+    #     "per_device_eval_batch_size": 16,
+    #     "learning_rate": 2e-5,
+    # },
     {
         "name": "qqp",
         "task_name": "qqp",
@@ -233,9 +234,10 @@ def main():
     script_path = Path(__file__).resolve()
     project_root = script_path.parent.parent
 
-    # Setup directories
-    output_base = Path(args.output_dir)
-    results_dir = Path(args.results_dir)
+    # Setup directories - use absolute paths based on project root
+    output_base = project_root / args.output_dir
+    results_dir = project_root / args.results_dir
+    output_base.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Results file for tracking completed runs
