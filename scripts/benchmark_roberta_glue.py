@@ -93,7 +93,15 @@ def main():
     else:
         print("No mask_path supplied; running dense attention.")
 
-    dataset = load_dataset(args.dataset_name, task_name)
+    # For local dataset paths, use 'default' config; for remote, use task_name
+    from pathlib import Path
+    dataset_path = Path(args.dataset_name)
+    if dataset_path.is_dir():
+        # Local dataset - load with default config
+        dataset = load_dataset(args.dataset_name, "default")
+    else:
+        # Remote dataset - use task_name as config
+        dataset = load_dataset(args.dataset_name, task_name)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir, use_fast=True)
 
     encoded = dataset.map(
