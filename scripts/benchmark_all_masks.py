@@ -27,8 +27,6 @@ MASK_TYPES = [
     ("window_dilations", ["--window", "16", "--dilations", "16,32,64"]),
     ("random_circulant", ["--degree", "8", "--seed", "42"]),
     ("bigbird", ["--global_tokens", "2", "--block_size", "2"]),
-    ("bipartite", ["--premise_len", "64", "--local_window", "3", "--cross_window", "2"]),
-    ("nearly_dense", ["--drop_degree", "4"]),
 ]
 
 # Benchmarks to run
