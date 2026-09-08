@@ -180,14 +180,24 @@ def main():
         # Rename 'label' to 'labels' (expected by Transformers)
         dataset = dataset.rename_column("label", "labels")
 
-    encoded = dataset.map(
-        lambda batch: preprocess_examples(
+    def preprocess_with_labels(batch):
+        """Preprocess text and include labels for model training."""
+        result = preprocess_examples(
             batch,
             tokenizer,
             args.max_length,
             sentence1_key,
             sentence2_key,
-        ),
+        )
+        # Add labels - use 'labels' column if available, otherwise 'label'
+        if "labels" in batch:
+            result["labels"] = batch["labels"]
+        elif "label" in batch:
+            result["labels"] = batch["label"]
+        return result
+
+    encoded = dataset.map(
+        preprocess_with_labels,
         batched=True,
     )
 
