@@ -234,9 +234,16 @@ def main():
     script_path = Path(__file__).resolve()
     project_root = script_path.parent.parent
 
-    # Setup directories - use absolute paths based on project root
-    output_base = project_root / args.output_dir
-    results_dir = project_root / args.results_dir
+    # Setup directories - accept absolute or relative paths
+    output_base = Path(args.output_dir)
+    results_dir = Path(args.results_dir)
+
+    # Convert relative paths to be relative to project root
+    if not output_base.is_absolute():
+        output_base = project_root / output_base
+    if not results_dir.is_absolute():
+        results_dir = project_root / results_dir
+
     output_base.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
