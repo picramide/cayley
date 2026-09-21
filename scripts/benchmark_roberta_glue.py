@@ -166,6 +166,9 @@ def main():
         "num_labels": task_config["num_labels"],
         "cache_dir": args.cache_dir,
         "trust_remote_code": True,
+        # Offline checkpoints have a two-label head; STS-B and MNLI need
+        # different output sizes. Reinitialize only when training the new head.
+        "ignore_mismatched_sizes": args.do_train,
     }
     if task_config["is_regression"]:
         model_kwargs["problem_type"] = "regression"
