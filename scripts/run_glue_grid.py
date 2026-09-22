@@ -107,7 +107,7 @@ def generate_all_masks(args) -> list[tuple[str, Path | None]]:
             ["--kind", "local", "--seq", str(args.max_length), "--window", "16"],
         ),
         (
-            "bigbird_g2_b2_r1",
+            "bigbird_g2_b2_r3",
             [
                 "--kind",
                 "bigbird",
@@ -120,7 +120,7 @@ def generate_all_masks(args) -> list[tuple[str, Path | None]]:
                 "--block_size",
                 "2",
                 "--num_random_blocks",
-                "1",
+                "3",
                 "--window_block_left",
                 "1",
                 "--window_block_right",

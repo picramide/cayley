@@ -29,7 +29,13 @@ MASK_TYPES = [
     ("circulant", ["--generators", "1,2,3"]),
     ("window_dilations", ["--window", "16", "--dilations", "16,32,64"]),
     ("random_circulant", ["--degree", "8", "--seed", "42"]),
-    ("bigbird", ["--global_tokens", "2", "--block_size", "2"]),
+    ("bigbird", [
+        "--global_tokens", "2",
+        "--block_size", "2",
+        "--num_random_blocks", "3",
+        "--window_block_left", "1",
+        "--window_block_right", "1",
+    ]),
 ]
 
 # Benchmarks to run

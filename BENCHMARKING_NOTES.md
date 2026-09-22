@@ -70,6 +70,26 @@ python scripts/benchmark_roberta_glue.py \
 For fair comparisons, keep seed, max length, batch size, learning rate, epochs,
 and training/eval split identical between dense and sparse runs.
 
+BigBird defaults to blocks of 2 tokens, the first 2 tokens as one global block,
+3 random blocks per query block per head, and a local window covering the query
+block plus one block on each side. Random blocks exclude global and local blocks
+and are sampled without replacement (up to the number of available blocks).
+The global tokens attend to all tokens and are visible to all tokens.
+
+Earlier defaults used only 1 random block. Regenerate masks and use fresh output
+and results directories when comparing the new configuration. The all-masks
+runner records both configurations as `bigbird`, and `--skip_completed` checks
+only task and mask names, so it cannot distinguish old and new BigBird results.
+Saved JSONL metrics alone do not record the random-block count.
+
+Masks are generated for the maximum sequence length and cropped for shorter
+batches; padding is also masked. Thus, 3 sampled random blocks do not guarantee
+3 usable random blocks for each shorter example.
+
+The benchmark evaluates the final checkpoint (`load_best_model_at_end=False`).
+Inspect per-epoch metrics and repeat comparisons across seeds before concluding
+that a mask consistently outperforms another, especially when scores are close.
+
 Full grid:
 
 ```bash

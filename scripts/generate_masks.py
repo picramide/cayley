@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument("--no_self", action="store_true")
     parser.add_argument("--global_tokens", type=int, default=2)
     parser.add_argument("--block_size", type=int, default=2)
-    parser.add_argument("--num_random_blocks", type=int, default=1)
+    parser.add_argument("--num_random_blocks", type=int, default=3)
     parser.add_argument("--window_block_left", type=int, default=1)
     parser.add_argument("--window_block_right", type=int, default=1)
     parser.add_argument("--premise_len", type=int, default=64)

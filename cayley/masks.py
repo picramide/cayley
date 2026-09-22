@@ -120,7 +120,7 @@ def build_random_circulant_mask(
 class BigBirdMaskConfig:
     global_tokens: int = 2
     block_size: int = 2
-    num_random_blocks: int = 1
+    num_random_blocks: int = 3
     window_block_left: int = 1
     window_block_right: int = 1
     seed: int = 42
