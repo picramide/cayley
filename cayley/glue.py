@@ -32,6 +32,10 @@ def get_task_config(task_name: str) -> dict[str, object]:
         "sentence2_key": sentence2_key,
         "num_labels": num_labels,
         "is_regression": is_regression,
+        "metric_for_best_model": {
+            "cola": "matthews_correlation", "stsb": "pearson",
+            "mrpc": "f1", "qqp": "f1",
+        }.get(task_name, "accuracy"),
     }
 
 
@@ -115,13 +119,18 @@ def compute_metrics_fn(task_name: str):
             }
 
         preds = np.argmax(logits, axis=-1)
+        diagnostics = {
+            f"predicted_class_{label}_count": int((preds == label).sum())
+            for label in range(get_task_config(task_name)["num_labels"])
+        }
         if task_name in {"mrpc", "qqp"}:
             return {
+                **diagnostics,
                 "accuracy": accuracy(preds, labels),
                 "f1": binary_f1(preds, labels),
             }
         if task_name == "cola":
-            return {"matthews_correlation": matthews_corrcoef(preds, labels)}
-        return {"accuracy": accuracy(preds, labels)}
+            return {**diagnostics, "matthews_correlation": matthews_corrcoef(preds, labels)}
+        return {**diagnostics, "accuracy": accuracy(preds, labels)}
 
     return compute_metrics

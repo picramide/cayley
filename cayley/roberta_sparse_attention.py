@@ -1,3 +1,4 @@
+import inspect
 import math
 import os
 
@@ -70,20 +71,20 @@ def patch_roberta_attention() -> None:
     if hasattr(modeling_roberta.RobertaSelfAttention, "_cayley_sparse_patch_applied"):
         return
 
-    def patched_forward(
-        self,
-        hidden_states,
-        attention_mask=None,
-        head_mask=None,
-        encoder_hidden_states=None,
-        encoder_attention_mask=None,
-        past_key_value=None,
-        output_attentions=False,
-        **kwargs,
-    ):
-        if encoder_hidden_states is not None:
+    original_signature = inspect.signature(modeling_roberta.RobertaSelfAttention.forward)
+    legacy_outputs = "output_attentions" in original_signature.parameters
+
+    def patched_forward(self, hidden_states, *args, **kwargs):
+        # Transformers 4 and 5 pass different positional arguments and return
+        # different tuple lengths. Bind against the installed implementation.
+        inputs = original_signature.bind(self, hidden_states, *args, **kwargs).arguments
+        inputs.update(inputs.pop("kwargs", {}))
+        attention_mask = inputs.get("attention_mask")
+        head_mask = inputs.get("head_mask")
+        output_attentions = inputs.get("output_attentions", False)
+        if inputs.get("encoder_hidden_states") is not None:
             raise NotImplementedError("Cross-attention is not used by RoBERTa sequence classification.")
-        if past_key_value is not None:
+        if inputs.get("past_key_value") is not None or inputs.get("past_key_values") is not None:
             raise NotImplementedError("past_key_value is not supported by this benchmark patch.")
 
         batch_size, seq_len, _ = hidden_states.size()
@@ -101,7 +102,13 @@ def patch_roberta_attention() -> None:
         attention_scores = attention_scores / math.sqrt(head_dim)
 
         if attention_mask is not None:
-            attention_scores = attention_scores + attention_mask
+            if attention_mask.dtype == torch.bool:
+                # SDPA uses True=keep; adding this mask would expose padding.
+                attention_scores = attention_scores.masked_fill(~attention_mask, float("-inf"))
+            else:
+                attention_scores = attention_scores + attention_mask
+                blocked = attention_mask <= torch.finfo(attention_mask.dtype).min
+                attention_scores = attention_scores.masked_fill(blocked, float("-inf"))
 
         global GLOBAL_SPARSE_MASK, GLOBAL_VERBOSE_MASK
         if GLOBAL_SPARSE_MASK is not None:
@@ -112,8 +119,7 @@ def patch_roberta_attention() -> None:
                 k_len=attention_scores.size(-1),
                 device=attention_scores.device,
             )
-            mask_value = torch.finfo(attention_scores.dtype).min
-            attention_scores = attention_scores.masked_fill(~sparse_mask, mask_value)
+            attention_scores = attention_scores.masked_fill(~sparse_mask, float("-inf"))
 
             if GLOBAL_VERBOSE_MASK:
                 keep_ratio = sparse_mask.float().mean().item()
@@ -123,7 +129,12 @@ def patch_roberta_attention() -> None:
                 )
                 GLOBAL_VERBOSE_MASK = False
 
+        # A fully blocked (e.g. padded) query must not produce NaNs in either
+        # the forward pass or backward pass.
+        fully_blocked = torch.isneginf(attention_scores).all(dim=-1, keepdim=True)
+        attention_scores = attention_scores.masked_fill(fully_blocked, 0.0)
         attention_probs = torch.nn.functional.softmax(attention_scores, dim=-1)
+        attention_probs = attention_probs.masked_fill(fully_blocked, 0.0)
         attention_probs = self.dropout(attention_probs)
         if head_mask is not None:
             attention_probs = attention_probs * head_mask
@@ -134,6 +145,8 @@ def patch_roberta_attention() -> None:
 
         if output_attentions:
             return context_layer, attention_probs
+        if legacy_outputs:
+            return (context_layer,)
         return context_layer, None
 
     modeling_roberta.RobertaSelfAttention.forward = patched_forward

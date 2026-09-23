@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Benchmark script for running all available masks on QQP, MNLI, and QNLI benchmarks.
+Benchmark script for running all available masks on the supported GLUE tasks.
 
 Usage:
     python scripts/benchmark_all_masks.py [--output_dir BASE_DIR] [--results_dir RESULTS_DIR]
 
-This script runs all mask types on each of the three benchmarks (QQP, MNLI, QNLI)
-and saves results as JSONL files.
+This script trains and validates every task/mask combination and saves JSONL results.
 """
 
 from __future__ import annotations
@@ -14,12 +13,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Keep direct invocation usable before installing the package, including dry runs.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from cayley.benchmarking import BENCHMARK_PROTOCOL_VERSION, run_key
 
 # Available mask types with their arguments
 MASK_TYPES = [
@@ -142,19 +144,26 @@ BENCHMARKS = [
 ]
 
 
-def generate_mask(kind: str, mask_path: str, mask_args: list, cwd: Path) -> bool:
+def generate_mask(kind: str, mask_path: str, mask_args: list, cwd: Path,
+                  seq_len: int = 128, dry_run: bool = False) -> bool:
     """Generate a mask using the generate_masks.py script."""
     cmd = [
-        "python",
+        sys.executable,
         "-u",
         "scripts/generate_masks.py",
         "--kind",
         kind,
         "--seq",
-        "128",
+        str(seq_len),
+        "--heads",
+        "12",
         "--output",
         mask_path,
     ] + mask_args
+
+    if dry_run:
+        print(f"[DRY RUN] {shlex.join(cmd)}")
+        return True
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(cwd)
@@ -184,10 +193,12 @@ def run_benchmark(
     per_device_eval_batch_size: int,
     learning_rate: float,
     cwd: Path,
+    mask_config: Optional[dict] = None,
+    dry_run: bool = False,
 ) -> bool:
     """Run a single benchmark using the benchmark_roberta_glue.py script."""
     cmd = [
-        "python",
+        sys.executable,
         "-u",
         "scripts/benchmark_roberta_glue.py",
         "--task_name",
@@ -222,6 +233,12 @@ def run_benchmark(
 
     if mask_path:
         cmd.extend(["--mask_path", mask_path])
+    if mask_config is not None:
+        cmd.extend(["--mask_config", json.dumps(mask_config, sort_keys=True)])
+
+    if dry_run:
+        print(f"[DRY RUN] {shlex.join(cmd)}")
+        return True
 
     print(f"[BENCHMARK] Running {task_name} with {mask_name}")
 
@@ -244,14 +261,15 @@ def load_existing_results(results_file: Path) -> set:
             for line in f:
                 if line.strip():
                     data = json.loads(line.strip())
-                    key = (data["task_name"], data["mask_name"])
-                    completed.add(key)
+                    if (data.get("benchmark_protocol_version") == BENCHMARK_PROTOCOL_VERSION
+                            and data.get("do_train") and data.get("do_eval") and data.get("metrics")):
+                        completed.add(run_key(data))
     return completed
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Benchmark all masks on QQP, MNLI, and QNLI"
+        description="Train and validate all masks on GLUE"
     )
     parser.add_argument(
         "--output_dir",
@@ -268,7 +286,7 @@ def main():
     parser.add_argument(
         "--skip_completed",
         action="store_true",
-        help="Skip already completed benchmarks (uses results/benchmark_all.jsonl)",
+        help="Skip matching runs from the current protocol in <results_dir>/benchmark_all.jsonl",
     )
     parser.add_argument(
         "--dry_run",
@@ -297,8 +315,9 @@ def main():
     if not results_dir.is_absolute():
         results_dir = project_root / results_dir
 
-    output_base.mkdir(parents=True, exist_ok=True)
-    results_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        output_base.mkdir(parents=True, exist_ok=True)
+        results_dir.mkdir(parents=True, exist_ok=True)
 
     # Results file for tracking completed runs
     results_file = results_dir / "benchmark_all.jsonl"
@@ -314,9 +333,10 @@ def main():
     if offline_data_dir:
         print(f"Offline data directory: {offline_data_dir}")
 
+    benchmarks = [dict(benchmark) for benchmark in BENCHMARKS]
     # Update benchmarks to use offline paths if specified
     if offline_data_dir:
-        for benchmark in BENCHMARKS:
+        for benchmark in benchmarks:
             # Local dataset path: offline_data_dir/glue/<task_name>
             benchmark["dataset_name"] = str(offline_data_dir / "glue" / benchmark["name"])
             # Local model path: offline_data_dir/models/roberta-base
@@ -328,23 +348,27 @@ def main():
     print(f"Results dir: {results_dir}")
     print("-" * 60)
 
-    total = len(MASK_TYPES) * len(BENCHMARKS)
+    total = len(MASK_TYPES) * len(benchmarks)
     executed = 0
     succeeded = 0
     failed = 0
 
-    for benchmark in BENCHMARKS:
+    for benchmark in benchmarks:
         for mask_kind, mask_args in MASK_TYPES:
             executed += 1
 
             # Create unique run name
             run_name = f"{benchmark['name']}_{mask_kind}"
             mask_name = mask_kind
+            mask_config = {
+                "kind": mask_kind, "seq_len": benchmark["max_length"],
+                "heads": 12, "args": mask_args,
+            }
 
             # Generate mask path
             mask_path = None
             if mask_kind != "dense":
-                mask_path = f"masks/{run_name}.pt"
+                mask_path = str(output_base / "masks" / f"{run_name}.pt")
 
             # Output directories
             output_dir = str(output_base / benchmark["name"] / mask_kind)
@@ -352,7 +376,12 @@ def main():
 
             # Skip if already completed
             if args.skip_completed:
-                if (benchmark["name"], mask_kind) in completed:
+                expected = {
+                    **benchmark, "mask_name": mask_kind, "mask_config": mask_config,
+                    "benchmark_protocol_version": BENCHMARK_PROTOCOL_VERSION,
+                    "weight_decay": 0.01,
+                }
+                if run_key(expected) in completed:
                     print(f"[SKIP] {benchmark['name']} with {mask_kind}")
                     succeeded += 1
                     continue
@@ -363,7 +392,8 @@ def main():
 
             # Generate mask if needed
             if mask_kind != "dense":
-                if not generate_mask(mask_kind, mask_path, mask_args, project_root):
+                if not generate_mask(mask_kind, mask_path, mask_args, project_root,
+                                     seq_len=benchmark["max_length"], dry_run=args.dry_run):
                     failed += 1
                     continue
 
@@ -384,6 +414,8 @@ def main():
                 per_device_eval_batch_size=benchmark["per_device_eval_batch_size"],
                 learning_rate=benchmark["learning_rate"],
                 cwd=project_root,
+                mask_config=mask_config,
+                dry_run=args.dry_run,
             ):
                 failed += 1
                 continue
@@ -391,8 +423,13 @@ def main():
             succeeded += 1
 
     print("\n" + "=" * 60)
-    print(f"SUMMARY: {succeeded}/{executed} succeeded, {failed} failed")
-    print(f"Results saved to: {results_file}")
+    if args.dry_run:
+        print(f"DRY RUN: previewed/skipped {executed} jobs; no benchmarks executed")
+    else:
+        print(f"SUMMARY: {succeeded}/{executed} succeeded, {failed} failed")
+        print(f"Results saved to: {results_file}")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
