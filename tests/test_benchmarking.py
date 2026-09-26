@@ -46,6 +46,7 @@ class RunnerTests(unittest.TestCase):
             completed = runner.load_existing_results(path)
         self.assertEqual(completed, {run_key(current)})
         for change in ({'seed': 17}, {'learning_rate': 1e-5}, {'max_train_samples': 8},
+                       {'num_train_epochs': 3.0},
                        {'model_name': '/different/model'},
                        {'mask_config': {'kind': 'bigbird', 'args': ['--num_random_blocks', '1']}}):
             self.assertNotIn(run_key({**current, **change}), completed)

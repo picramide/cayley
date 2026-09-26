@@ -123,7 +123,7 @@ BENCHMARKS = [
         "dataset_name": "nyu-mll/glue",
         "model_name": "FacebookAI/roberta-base",
         "max_length": 128,
-        "num_train_epochs": 3.0,  # MNLI is larger, fewer epochs
+        "num_train_epochs": 5.0,
         "seed": 42,
         "per_device_train_batch_size": 8,
         "per_device_eval_batch_size": 16,
