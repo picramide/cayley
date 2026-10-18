@@ -13,9 +13,13 @@ draft's author; run on the training machine). Requires torch, transformers, data
 Usage:
   python diagnostics.py lengths  --glue /home/.../offline/glue --model /home/.../roberta-base
   python diagnostics.py retained --glue ... --model ... --masks /path/to/masks --n 512
+The lengths command defaults to the saved pilot mask directory on the institute server.
 """
-import argparse, json, os, sys
+import argparse, json, os
 import numpy as np
+
+PILOT_MASK_DIR = "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks"
+PILOT_MASKS = ("local", "hypercube", "circulant", "window_dilations", "random_circulant", "bigbird")
 
 FIELDS = {"cola": ("sentence", None), "sst2": ("sentence", None), "mrpc": ("sentence1", "sentence2"),
           "qqp": ("question1", "question2"), "stsb": ("sentence1", "sentence2"), "rte": ("sentence1", "sentence2"),
@@ -38,6 +42,30 @@ def encode(tok, ex, task, max_length=128):
     return tok(ex[a], ex[b] if b else None, truncation=True, max_length=max_length)
 
 
+def pilot_masks(mask_dir, task):
+    import torch
+    masks = {"dense": np.ones((128, 128), dtype=bool)}
+    for name in PILOT_MASKS:
+        path = os.path.join(mask_dir, f"{task}_{name}.pt")
+        mask = torch.load(path, map_location="cpu", weights_only=True).numpy()
+        expected = (12, 128, 128) if name == "bigbird" else (128, 128)
+        if mask.dtype != bool or mask.shape != expected:
+            raise ValueError(f"Unexpected pilot mask in {path}: {mask.dtype}, {mask.shape}")
+        masks[name] = mask
+    return masks
+
+
+def valid_density(mask, lengths):
+    if mask.ndim == 2:
+        mask = mask[None, :, :]
+    counts = np.bincount(lengths)
+    allowed = sum(count * mask[:, :length, :length].sum()
+                  for length, count in enumerate(counts) if count)
+    possible = mask.shape[0] * sum(count * length**2
+                                   for length, count in enumerate(counts) if count)
+    return float(allowed / possible)
+
+
 def lengths(args):
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.model)
@@ -58,12 +86,9 @@ def lengths(args):
         if seg2:
             s = np.array(seg2)
             rec.update(seg2_start_median=float(np.median(s)), frac_seg2_starts_after_36=float((s > 36).mean()))
-        # realised (valid-token) attention density per mask: sum_x |A_L(x)| / sum_x L(x)^2
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from masks import STUDIED, hypercube, cayley_Zn
-        ms = dict(STUDIED, hypercube_gray=hypercube(labeling="gray"), dyadic=cayley_Zn([1, 2, 4, 8, 16, 32, 64]))
-        rec["valid_density"] = {k: float(sum(A[:l, :l].sum() for l in L) / float((L.astype(float) ** 2).sum()))
-                                for k, A in ms.items()}
+        # Count only valid-token pairs; BigBird is averaged over its 12 saved heads.
+        ms = pilot_masks(args.masks or PILOT_MASK_DIR, task)
+        rec["valid_density"] = {k: valid_density(A, L) for k, A in ms.items()}
         rec["frac_len_le_17"] = float((L <= 17).mean())
         out[task] = rec
         print(task, json.dumps(rec))
