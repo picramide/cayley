@@ -21,7 +21,7 @@ import numpy as np
 
 PILOT_MASK_DIR = "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks"
 OUTPUT_DIR = "/scratch/scratch26/22cs30008/res/outputs"
-PILOT_MASKS = ("local", "hypercube", "circulant", "window_dilations", "random_circulant", "bigbird")
+PILOT_MASKS = ("local", "window_dilations", "circulant", "hypercube", "random_circulant", "bigbird")
 
 FIELDS = {"cola": ("sentence", None), "sst2": ("sentence", None), "mrpc": ("sentence1", "sentence2"),
           "qqp": ("question1", "question2"), "stsb": ("sentence1", "sentence2"), "rte": ("sentence1", "sentence2"),
