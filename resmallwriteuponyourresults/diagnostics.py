@@ -76,6 +76,7 @@ def valid_density(mask, lengths):
 
 def lengths(args):
     from transformers import AutoTokenizer
+    from masks import hypercube, cayley_Zn
     tok = AutoTokenizer.from_pretrained(args.model)
     out = {}
     for task in FIELDS:
@@ -96,6 +97,8 @@ def lengths(args):
             rec.update(seg2_start_median=float(np.median(s)), frac_seg2_starts_after_36=float((s > 36).mean()))
         # Count only valid-token pairs; BigBird is averaged over its 12 saved heads.
         ms = pilot_masks(args.masks or PILOT_MASK_DIR, task)
+        ms["hypercube_gray"] = hypercube(labeling="gray")
+        ms["dyadic"] = cayley_Zn([1, 2, 4, 8, 16, 32, 64])
         rec["valid_density"] = {k: valid_density(A, L) for k, A in ms.items()}
         rec["frac_len_le_17"] = float((L <= 17).mean())
         out[task] = rec
