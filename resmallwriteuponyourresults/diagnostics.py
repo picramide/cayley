@@ -14,17 +14,25 @@ Usage:
   python diagnostics.py lengths  --glue /home/.../offline/glue --model /home/.../roberta-base
   python diagnostics.py retained --glue ... --model ... --masks /path/to/masks --n 512
 The lengths command defaults to the saved pilot mask directory on the institute server.
+Results are written to /scratch/scratch26/22cs30008/res/outputs.
 """
 import argparse, json, os
 import numpy as np
 
 PILOT_MASK_DIR = "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks"
+OUTPUT_DIR = "/scratch/scratch26/22cs30008/res/outputs"
 PILOT_MASKS = ("local", "hypercube", "circulant", "window_dilations", "random_circulant", "bigbird")
 
 FIELDS = {"cola": ("sentence", None), "sst2": ("sentence", None), "mrpc": ("sentence1", "sentence2"),
           "qqp": ("question1", "question2"), "stsb": ("sentence1", "sentence2"), "rte": ("sentence1", "sentence2"),
           "qnli": ("question", "sentence"), "mnli": ("premise", "hypothesis")}
 DEV = {"mnli": "validation_matched"}
+
+
+def write_result(filename, data):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(os.path.join(OUTPUT_DIR, filename), "w") as handle:
+        json.dump(data, handle, indent=1)
 
 
 def load_dev(root, task):
@@ -92,7 +100,7 @@ def lengths(args):
         rec["frac_len_le_17"] = float((L <= 17).mean())
         out[task] = rec
         print(task, json.dumps(rec))
-    json.dump(out, open("length_stats.json", "w"), indent=1)
+    write_result("length_stats.json", out)
 
 
 def retained(args):
@@ -126,7 +134,7 @@ def retained(args):
             cnt += 1
         res[task] = {k: (v / cnt).tolist() for k, v in acc.items()}
         print(task, {k: round(float(np.mean(v)), 3) for k, v in res[task].items()})
-    json.dump(res, open("retained_mass.json", "w"), indent=1)
+    write_result("retained_mass.json", res)
 
 
 def profile(args):
@@ -152,7 +160,7 @@ def profile(args):
             m += 1
     prof = {"offsets": list(range(-(n - 1), n)), "per_layer": (off / np.maximum(cnt, 1)).tolist(),
             "to_position0": (to0 / m).tolist(), "to_separators": (tosep / m).tolist()}
-    json.dump(prof, open("offset_profile.json", "w"))
+    write_result("offset_profile.json", prof)
     print("wrote offset_profile.json; mean mass on <s> per layer:", np.round(to0 / m, 3))
 
 
