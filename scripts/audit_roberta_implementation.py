@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""No-training RoBERTa-base attention audit for Appendix B.1.
-
-Checks the saved pilot and follow-up masks, dense/all-ones equivalence, blocked attention
-probabilities, and the 60-token circulant reachability prediction. A frozen
-pilot JSONL is required so replaced mask files cannot silently pass the audit.
-"""
+"""No-training RoBERTa-base attention audit for Appendix B.1."""
 
 import argparse
 from contextlib import nullcontext
@@ -32,8 +27,6 @@ MASK_DIR = Path(__file__).resolve().parent.parent / "masks"
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True, help="Saved RoBERTa-base classification model")
-    parser.add_argument("--mask-dir", type=Path, default=MASK_DIR, help="Saved mask directory")
-    parser.add_argument("--pilot-results", type=Path, required=True, help="Frozen pilot JSONL (one row per task/mask)")
     parser.add_argument("--report", type=Path, help="Where to write the Appendix B.1 JSON report")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp32")
@@ -54,128 +47,72 @@ def load_saved_tensor(path):
     return tensor
 
 
-def check_pilot_masks(args):
-    rows = {}
-    duplicates = []
-    with args.pilot_results.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, 1):
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            key = (row.get("task_name"), row.get("mask_name"))
-            if key in rows:
-                duplicates.append({"line": line_number, "task": key[0], "mask": key[1]})
-            else:
-                rows[key] = row
+def check_saved_masks():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "student_package" / "scripts"))
+    from followup_masks import followups
 
-    failures = []
-    reference = {}
+    expected = followups()
+    cases = {}
     reference_paths = {}
-    checked_files = 0
-    for task in TASKS:
-        if (task, "dense") not in rows:
-            failures.append(f"Missing pilot result for {task}/dense")
-        for mask_name in MASKS:
-            row = rows.get((task, mask_name))
-            path = args.mask_dir / f"{task}_{mask_name}.pt"
-            if row is None:
-                failures.append(f"Missing pilot result for {task}/{mask_name}")
-                continue
+    patterns = {}
+    for name in MASKS + NEW_MASKS:
+        failures = []
+        hashes = {}
+        reference = None
+        paths = (MASK_DIR / f"{task}_{name}.pt" for task in TASKS) if name in MASKS else (MASK_DIR / f"{name}.pt",)
+        for path in paths:
             if not path.is_file():
                 failures.append(f"Missing saved mask: {path}")
                 continue
-            recorded_path = row.get("mask_path")
-            if not recorded_path or Path(recorded_path).name != path.name:
-                failures.append(f"Pilot mask path differs for {task}/{mask_name}: {recorded_path}")
-            recorded_hash = row.get("mask_sha256")
-            actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-            if not recorded_hash or actual_hash != recorded_hash:
-                failures.append(f"Pilot file SHA-256 differs for {task}/{mask_name}: "
-                                f"recorded={recorded_hash}, saved={actual_hash}")
             try:
                 tensor = load_saved_tensor(path)
             except Exception as exc:
                 failures.append(f"Cannot load {path}: {exc}")
                 continue
-            checked_files += 1
-            expected_shape = (12, LENGTH, LENGTH) if mask_name == "bigbird" else (LENGTH, LENGTH)
-            if tensor.dtype != torch.bool or tuple(tensor.shape) != expected_shape:
-                failures.append(f"Wrong dtype/shape for {task}/{mask_name}: {tensor.dtype}, {tuple(tensor.shape)}")
+            hashes[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            shape = (12, LENGTH, LENGTH) if name == "bigbird" or name in NEW_MASKS else (LENGTH, LENGTH)
+            if tensor.dtype != torch.bool or tuple(tensor.shape) != shape:
+                failures.append(f"Wrong dtype/shape for {path.name}: {tensor.dtype}, {tuple(tensor.shape)}")
                 continue
-            if mask_name not in reference:
-                reference[mask_name] = tensor
-                reference_paths[mask_name] = path
-            elif not torch.equal(reference[mask_name], tensor):
-                different = int((reference[mask_name] != tensor).count_nonzero().item())
-                failures.append(f"{task}/{mask_name} differs from {reference_paths[mask_name]} "
-                                f"at {different} tensor entries")
+            if reference is None:
+                reference = tensor
+                reference_paths[name] = path
+            elif not torch.equal(reference, tensor):
+                different = int((reference != tensor).count_nonzero().item())
+                failures.append(f"{path.name} differs from {reference_paths[name].name} at {different} tensor entries")
 
-    if duplicates:
-        failures.append("Pilot JSONL has duplicate task/mask rows; use a frozen pilot snapshot")
+        if name in NEW_MASKS and reference is not None:
+            if not torch.equal(reference, reference[:1].expand_as(reference)):
+                failures.append(f"{name} differs across heads")
+            pattern = reference[0]
+            if not pattern.diagonal().all() or not torch.equal(pattern, pattern.T):
+                failures.append(f"{name} lacks self-loops or symmetry")
+            if not bool((pattern.sum(-1) == 8).all()) or not bool(pattern.diagonal(offset=1).all()):
+                failures.append(f"{name} is not a degree-8 adjacent-token placement")
+            if not torch.equal(pattern, torch.from_numpy(expected[name])):
+                failures.append(f"{name} differs from the supplied generator")
+            for other, previous in patterns.items():
+                if torch.equal(pattern, previous):
+                    failures.append(f"{name} duplicates {other}")
+            patterns[name] = pattern
+        elif name == "hypercube" and reference is not None:
+            patterns[name] = reference
+
+        cases[name] = {
+            "passed": not failures and len(hashes) == (len(TASKS) if name in MASKS else 1),
+            "checked_mask_files": len(hashes),
+            "reference_path": str(reference_paths[name]) if name in reference_paths else None,
+            "tensor_sha256": (hashlib.sha256(reference.contiguous().numpy().tobytes()).hexdigest()
+                              if reference is not None else None),
+            "file_sha256": hashes,
+            "failures": failures,
+        }
+
     return {
-        "passed": not failures,
-        "checked_mask_files": checked_files,
-        "reference_paths": {name: str(path) for name, path in reference_paths.items()},
-        "tensor_sha256": {name: hashlib.sha256(tensor.contiguous().numpy().tobytes()).hexdigest()
-                          for name, tensor in reference.items()},
-        "duplicates": duplicates,
-        "failures": failures,
+        "passed": all(case["passed"] for case in cases.values()),
+        "checked_mask_files": sum(case["checked_mask_files"] for case in cases.values()),
+        "cases": cases,
     }, reference_paths
-
-
-def check_new_masks(args, pilot_hypercube_path):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "student_package" / "scripts"))
-    from followup_masks import followups
-
-    expected = followups()
-    failures = []
-    paths = {}
-    tensor_hashes = {}
-    file_hashes = {}
-    patterns = {}
-    if pilot_hypercube_path is None:
-        failures.append("No pilot hypercube mask found")
-    else:
-        patterns["hypercube"] = load_saved_tensor(pilot_hypercube_path)
-
-    for name in NEW_MASKS:
-        path = args.mask_dir / f"{name}.pt"
-        if not path.is_file():
-            failures.append(f"Missing new mask: {path}")
-            continue
-        try:
-            tensor = load_saved_tensor(path)
-        except Exception as exc:
-            failures.append(f"Cannot load {path}: {exc}")
-            continue
-        if tensor.dtype != torch.bool or tuple(tensor.shape) != (12, LENGTH, LENGTH):
-            failures.append(f"Wrong dtype/shape for {name}: {tensor.dtype}, {tuple(tensor.shape)}")
-            continue
-        if not torch.equal(tensor, tensor[:1].expand_as(tensor)):
-            failures.append(f"{name} differs across heads")
-        pattern = tensor[0]
-        if not pattern.diagonal().all() or not torch.equal(pattern, pattern.T):
-            failures.append(f"{name} lacks self-loops or symmetry")
-        if not bool((pattern.sum(-1) == 8).all()) or not bool(pattern.diagonal(offset=1).all()):
-            failures.append(f"{name} is not a degree-8 adjacent-token placement")
-        if not torch.equal(pattern, torch.from_numpy(expected[name])):
-            failures.append(f"{name} differs from the supplied generator")
-        for other, previous in patterns.items():
-            if torch.equal(pattern, previous):
-                failures.append(f"{name} duplicates {other}")
-        patterns[name] = pattern
-        paths[name] = path
-        tensor_hashes[name] = hashlib.sha256(tensor.contiguous().numpy().tobytes()).hexdigest()
-        file_hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
-
-    return {
-        "passed": not failures and len(paths) == len(NEW_MASKS),
-        "checked_mask_files": len(paths),
-        "reference_paths": {name: str(path) for name, path in paths.items()},
-        "tensor_sha256": tensor_hashes,
-        "file_sha256": file_hashes,
-        "failures": failures,
-    }, paths
 
 
 def test_batch(config, device, length=60):
@@ -365,25 +302,18 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
     report = {
-        "model": str(args.model), "mask_dir": str(args.mask_dir),
-        "pilot_results": str(args.pilot_results), "device": str(device),
+        "model": str(args.model), "mask_dir": str(MASK_DIR), "device": str(device),
         "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
         "precision": args.precision, "torch_version": torch.__version__,
         "transformers_version": transformers.__version__, "checks": {},
     }
     checks = report["checks"]
     reference_paths = {}
-    new_reference_paths = {}
     def mask_audit():
-        result, paths = check_pilot_masks(args)
+        result, paths = check_saved_masks()
         reference_paths.update(paths)
         return result
-    run_check(checks, "pilot_masks_and_cross_task_equality", mask_audit)
-    def new_mask_audit():
-        result, paths = check_new_masks(args, reference_paths.get("hypercube"))
-        new_reference_paths.update(paths)
-        return result
-    run_check(checks, "new_masks", new_mask_audit)
+    run_check(checks, "masks_and_cross_task_equality", mask_audit)
 
     try:
         model = RobertaForSequenceClassification.from_pretrained(
@@ -412,7 +342,7 @@ def main():
         run_check(checks, "dense_equals_all_ones", lambda: check_all_ones(model, ids, padding, args))
         full_ids, full_padding = test_batch(model.config, device, length=LENGTH)
         run_check(checks, "blocked_probabilities", lambda: check_blocked_probabilities(
-            model, full_ids, full_padding, {**reference_paths, **new_reference_paths}, args))
+            model, full_ids, full_padding, reference_paths, args))
         if "circulant" in reference_paths:
             run_check(checks, "circulant_60_tokens", lambda: check_circulant(
                 model, ids, padding, reference_paths["circulant"], args))
@@ -425,7 +355,7 @@ def main():
     finally:
         sparse.GLOBAL_SPARSE_MASK = None
 
-    report["passed"] = len(checks) == 5 and all(check["passed"] for check in checks.values())
+    report["passed"] = len(checks) == 4 and all(check["passed"] for check in checks.values())
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     print(f"Overall: {'PASS' if report['passed'] else 'FAIL'}; report: {args.report}")

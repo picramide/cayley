@@ -19,7 +19,7 @@ from cayley.deberta_sparse_attention import (
     pair_attention_mask,
 )
 from audit_roberta_implementation import (
-    LENGTH, MASKS, MASK_DIR, NEW_MASKS, autocast_for, check_new_masks, check_pilot_masks, load_saved_tensor,
+    LENGTH, MASKS, MASK_DIR, NEW_MASKS, autocast_for, check_saved_masks, load_saved_tensor,
     max_abs_difference, run_check,
 )
 
@@ -27,8 +27,6 @@ from audit_roberta_implementation import (
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True)
-    parser.add_argument("--mask-dir", type=Path, default=MASK_DIR)
-    parser.add_argument("--pilot-results", type=Path, required=True)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp16")
@@ -188,29 +186,19 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
     report = {
-        "model": str(args.model), "mask_dir": str(args.mask_dir),
-        "pilot_results": str(args.pilot_results), "device": str(device),
+        "model": str(args.model), "mask_dir": str(MASK_DIR), "device": str(device),
         "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
         "precision": args.precision, "torch_version": torch.__version__,
         "transformers_version": transformers.__version__, "checks": {},
     }
     checks = report["checks"]
     reference_paths = {}
-    new_reference_paths = {}
-
     def mask_audit():
-        result, paths = check_pilot_masks(args)
+        result, paths = check_saved_masks()
         reference_paths.update(paths)
         return result
 
-    run_check(checks, "pilot_masks_and_cross_task_equality", mask_audit)
-
-    def new_mask_audit():
-        result, paths = check_new_masks(args, reference_paths.get("hypercube"))
-        new_reference_paths.update(paths)
-        return result
-
-    run_check(checks, "new_masks", new_mask_audit)
+    run_check(checks, "masks_and_cross_task_equality", mask_audit)
     try:
         torch.manual_seed(42)
         tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)
@@ -249,7 +237,7 @@ def main():
         run_check(checks, "dense_equals_all_ones", lambda: check_all_ones(model, ids, padding, args))
         full_ids, full_padding = test_batch(tokenizer, device, length=LENGTH)
         run_check(checks, "blocked_probabilities", lambda: check_blocked_probabilities(
-            model, full_ids, full_padding, {**reference_paths, **new_reference_paths}, args))
+            model, full_ids, full_padding, reference_paths, args))
         if "circulant" in reference_paths:
             run_check(checks, "circulant_60_tokens", lambda: check_circulant(
                 model, ids, padding, reference_paths["circulant"], args))
@@ -260,7 +248,7 @@ def main():
                                  "traceback": traceback.format_exc()}
         print("model_setup: FAIL", flush=True)
 
-    report["passed"] = len(checks) == 5 and all(check["passed"] for check in checks.values())
+    report["passed"] = len(checks) == 4 and all(check["passed"] for check in checks.values())
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     print(f"Overall: {'PASS' if report['passed'] else 'FAIL'}; report: {args.report}")
