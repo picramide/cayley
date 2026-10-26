@@ -1,0 +1,987 @@
+\documentclass[10pt]{article}
+\usepackage{tmlr}
+% For camera-ready: \usepackage[accepted]{tmlr}; for arXiv: \usepackage[preprint]{tmlr}
+\input{math_commands.tex}
+
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage[breakable,skins]{tcolorbox}
+\newtcolorbox{expcard}[1]{breakable, enhanced, colback=blue!2!white, colframe=blue!45!black, boxrule=0.6pt, arc=1mm,
+  title={#1}, fonttitle=\bfseries\small, fontupper=\small, left=5pt, right=5pt, top=3pt, bottom=3pt, before skip=8pt, after skip=8pt}
+\newcommand{\cardfield}[1]{\par\smallskip\noindent\textbf{#1.}\enspace}
+\newcommand{\cardpos}[1]{\par\smallskip\noindent\textcolor{green!40!black}{\textbf{If the hypothesis is supported.}}\enspace}
+\newcommand{\cardneg}[1]{\par\smallskip\noindent\textcolor{orange!75!black}{\textbf{If the hypothesis is not supported.}}\enspace}
+\newcommand{\cardmixed}[1]{\par\smallskip\noindent\textcolor{gray!70!black}{\textbf{If the hypothesis is partially supported.}}\enspace}
+\newcommand{\cardcannot}[1]{\par\smallskip\noindent\textbf{Not established by this experiment.}\enspace}
+
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newtheorem{lemma}{Lemma}
+\newtheorem{prediction}{Prediction}
+
+% ---------------------------------------------------------------
+% Drafting aid: everything marked \pending must be resolved (run,
+% filled in or deleted) before submission. Remove this macro then.
+\newcommand{\pending}[1]{\textcolor{red}{\textbf{[PENDING:} #1\textbf{]}}}
+\newcommand{\todoblock}[1]{\par\medskip\noindent\fcolorbox{red}{white}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{\color{red}\small\textbf{To do before submission.} #1}}\par\medskip}
+% ---------------------------------------------------------------
+
+% Results produced by scripts/analyse_exp1.py, analyse_exp2.py and analyse_extra.py are
+% included if present; otherwise a red marker is shown.
+\newcommand{\resulttable}[2]{\IfFileExists{#1}{\input{#1}}{\textcolor{red}{\textbf{[PENDING: #2]}}}}
+\newcommand{\resultfigure}[3]{\IfFileExists{#1}{\includegraphics[width=#2]{#1}}{\placeholderfig{3.6cm}{#3}}}
+\newcommand{\placeholderfig}[2]{\fcolorbox{red}{white}{\parbox[c][#1][c]{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{\centering\color{red}\small\textbf{Placeholder.} #2}}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Cay}{\mathrm{Cay}}
+\newcommand{\HR}{\mathrm{HR}}
+\newcommand{\dg}{$^\dagger$}
+
+\title{Sparse Attention in Dense-Pretrained Encoders:\\ Placement and Adaptation at a Fixed Attention Graph}
+
+\author{\name Anonymous authors \\ \addr Paper under double-blind review}
+
+\def\month{MM}
+\def\year{YYYY}
+\def\openreview{\url{https://openreview.net/forum?id=XXXX}}
+
+\raggedbottom
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Sparse attention patterns are frequently imposed on models that were pretrained with dense attention, and the resulting performance is commonly interpreted as a property of the sparsity pattern itself. We examine a more specific question: for a fixed deployed sparse structure imposed on a dense-pretrained encoder, to what extent does the outcome depend on the procedure used to adapt the model and on the placement of the attention graph along the sequence? We distinguish three sources of failure. The deployed attention graph may be unable to route task-relevant information to the readout token (communication); the mask may perturb the computation implemented by the pretrained weights (compatibility); or a given fine-tuning procedure may fail even though another procedure succeeds under the same final mask (adaptation). We use Cayley attention masks as an experimental instrument, since a single abstract graph admits many placements along the sequence at an identical realised attention budget, and since the graph induced on non-padded positions can be characterised exactly. An exploratory benchmark with RoBERTa-base on GLUE illustrates the need for this distinction: a hypercube mask yields degenerate predictions on CoLA although every token provably reaches the classifier token within seven layers, the addition of dilated edges to a window mask is associated with degenerate predictions on QNLI, and the degenerate runs never leave the initial loss plateau while several other runs leave it only in the final epochs. On the theoretical side, we show that padding reduces circulant masks to distance graphs on an interval, that information outside the receptive field of the readout cannot raise population accuracy above that of the best constant predictor, that recursive placements of the hypercube induce isomorphic deployed graphs, and hence identical realised density, at every input length, and that, for fixed logits and values, hard masking displaces the output of each attention head by $(1-R)(\mu_S-\mu_{\bar S})$. We conduct two controlled experiments on RoBERTa-base and DeBERTa-v3-base, which differ in position encoding and pretraining objective. \pending{Two or three sentences: (1) whether the degenerate outcomes are recovered under the same final mask by a stronger fine-tuning protocol, a longer budget or a gradual transition, relative to the effect of the same changes on the dense model; (2) whether five placements of one graph at an identical realised budget differ in the pretraining-objective loss of the pretrained model and in fine-tuning outcomes; and whether the two encoders agree.}
+\end{abstract}
+
+% =================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Self-attention allows every token to attend to every other token \citep{vaswani2017attention}. Sparse attention restricts this interaction to a fixed set of query--key pairs, typically to reduce the cost of processing long inputs \citep{child2019generating,beltagy2020longformer,zaheer2020bigbird,ainslie2020etc,tay2022efficient}. A sparsity pattern defines a graph on token positions, and the justifications offered for particular patterns are accordingly graph-theoretic: short paths between all pairs of tokens \citep{zaheer2020bigbird,shirzad2023exphormer}, connectivity sufficient for universal approximation \citep{yun2020on}, or efficient information transfer \citep{wang2022dense}. These arguments concern the functions that a model trained under the pattern can represent.
+
+In practice, sparse patterns are often imposed on models that were pretrained with dense attention. Converting a dense-pretrained language model to dilated attention degrades it substantially, and limited further training recovers only part of the loss \citep{wei2026rat}; when attention blocks are removed from a pretrained vision transformer, the attention probability assigned to them is a poor predictor of the resulting degradation \citep{kim2026ress}. Poor performance after such a conversion admits several explanations. The deployed graph may be unable to transmit the information required by the task (\emph{communication}). The mask may disrupt the computation that the pretrained weights implement (\emph{compatibility}). Alternatively, the fine-tuning procedure may fail even though a different procedure would succeed under the same final mask (\emph{adaptation}). These explanations imply different remedies, and the final task score alone does not distinguish between them.
+
+\paragraph{Research question.} \emph{For a fixed deployed sparse structure imposed on a dense-pretrained encoder, to what extent does the outcome depend on the procedure used to adapt the model and on the placement of the attention graph along the sequence?} We address this question with Cayley attention masks. A Cayley mask is specified by a group, a generating set and a placement of the group elements along the sequence. Placements of a single graph can be chosen such that the graph induced on the non-padded positions is the same unrooted graph at every input length (Proposition~\ref{prop:recursive}); this makes it possible to vary the alignment of the graph with the sequence while holding its budget and all unlabelled invariants of the deployed graph fixed. Cayley masks also permit an exact characterisation of the graph induced on the non-padded positions.
+
+\paragraph{Exploratory benchmark.} We fine-tuned RoBERTa-base \citep{liu2019roberta} on the eight GLUE tasks \citep{wang2019glue} under six sparse masks (Section~\ref{sec:pilot}). Under a hypercube mask, the model predicts a single class on CoLA, although every token can reach the classifier token within seven layers. A window mask augmented with dilated edges yields single-class predictions on QNLI, whereas the same window without these edges learns the task. In total, 13 of the 48 sparse runs are degenerate in this sense; in all but one of them, the training loss never departs from the entropy of the label distribution, and several other runs depart from it only in the final epochs. These observations motivate the present study but do not by themselves identify a cause: the benchmark uses a single seed, selects checkpoints on the evaluation set, and does not separate the three explanations above.
+
+\paragraph{Two encoders.} The controlled experiments use two dense-pretrained encoders of the same size that differ in how they represent positions and in how they were pretrained: RoBERTa-base, with absolute position embeddings and masked-language-model pretraining \citep{liu2019roberta}, and DeBERTa-v3-base, which represents positions through relative-position terms in disentangled attention \citep{he2021deberta} and was pretrained with replaced-token detection \citep{clark2020electra,he2023debertav3}. The difference in position encoding is directly relevant to placement: in a model that encodes positions only relatively, a placement determines which relative offsets the pretrained attention retains.
+
+\paragraph{Contributions.} The study consists of theoretical results, a characterisation of the failures observed in the exploratory benchmark, and two controlled experiments.
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+\item \textbf{Theory of the deployed graph} (Section~\ref{sec:framework}). Padding reduces circulant masks to distance graphs; information outside the receptive field of the readout cannot raise population accuracy; recursive placements of the hypercube induce isomorphic unrooted graphs, and hence identical realised density, at every input length; and, for fixed logits and values, hard and soft masking displace the output of each head along a line segment.
+\item \textbf{Characterisation of the failures} (Section~\ref{sec:pilot}). The degenerate runs of the benchmark are failures to leave the initial loss plateau, several outcomes are truncated by the training budget, and the receptive field of the circulant mask accounts for only part of its failures.
+\item \textbf{Adaptation} (Experiment~1, Section~\ref{sec:res1}). For both encoders, we test whether the degenerate outcomes occur under independent checkpoint selection, and whether they are recovered \emph{under the same final mask} by a stronger protocol, a longer budget or a gradual transition, relative to the effect of the same changes on the dense model. \pending{one-sentence result.}
+\item \textbf{Placement} (Experiment~2, Section~\ref{sec:res2}). For both encoders, we test whether distinct placements of one abstract graph, at an identical realised budget, change the loss of the pretrained model on its pretraining objective before any training, and the outcome of fine-tuning. \pending{one-sentence result.}
+\end{enumerate}
+The design of both experiments, the controlled quantities and the interpretation of each possible outcome were fixed before any run was conducted (Appendix~\ref{app:plan}).
+
+\paragraph{Scope.} All masks are applied to dense attention computed at sequence length 128; the study therefore makes no claims regarding computational efficiency. In the exploratory benchmark, sparse runs required 7--9\% more wall-clock time than dense runs. The controlled study uses two encoders and seven of the eight GLUE tasks, at a total cost of approximately 465 GPU-hours (Appendix~\ref{app:compute}). Section~\ref{sec:limits} discusses further limitations.
+
+% =================================================================
+\section{Related work}
+\label{sec:related}
+
+\paragraph{Fixed sparse attention.} Sparse Transformers employ strided and fixed attention patterns \citep{child2019generating}. Longformer combines sliding and dilated windows with task-specific global tokens \citep{beltagy2020longformer}, and ETC and BigBird introduce global tokens and, in the case of BigBird, random blocks \citep{ainslie2020etc,zaheer2020bigbird}. BigBird motivates its random connections by the short path lengths of random graphs and establishes universal approximation in the presence of global tokens; \citet{yun2020on} give general sufficient conditions on sparsity patterns for universal approximation with $O(n)$ connections. These results concern models trained under the respective pattern. \citet{tay2022efficient} provide a survey.
+
+\paragraph{Graph criteria, hypercubes and learned masks.} \citet{wang2022dense} evaluate attention graphs by their Normalized Information Payload and propose the Hypercube Transformer, together with a sequence-to-hypercube mapping that keeps neighbouring tokens adjacent. This mapping coincides with the reflected Gray code up to a permutation of coordinates and therefore yields exactly the Gray-placed hypercube mask considered here (Appendix~\ref{app:verify}). Their CubeBERT model, pretrained from scratch under this pattern, performs within approximately one point of BERT on GLUE. SparseBERT analyses the importance of attention positions during pretraining and learns sparse masks through a differentiable attention mask \citep{shi2021sparsebert}. Butterfly patterns, which are closely related to hypercubes, have been used for structured sparse training \citep{dao2019learning,chen2022pixelated}. The hypercube placements in this study are therefore placements of an existing architecture and serve as experimental controls.
+
+\paragraph{Expander and Cayley graphs.} Exphormer constructs sparse graph transformers from expander graphs and virtual global nodes \citep{shirzad2023exphormer}. Expander Graph Propagation and Cayley Graph Propagation interleave message passing on the input graph with message passing on Cayley graphs of $\mathrm{SL}(2,\Z_n)$ in order to mitigate over-squashing \citep{deac2022expander,wilson2025cayley}. For abelian groups such as $\Z_n$ and $\Z_2^d$, families of bounded-degree Cayley graphs cannot be expanders \citep{alon1994random,hoory2006expander}. In this work, Cayley graphs are used for experimental control rather than for their expansion properties.
+
+\paragraph{Sparsification of pretrained models.} \citet{wei2026rat} report that converting a dense-pretrained model to a dilated attention pattern causes substantial degradation, which they attribute to the reduced receptive field. ReSS selects the attention blocks to be removed according to the residual drift they induce rather than their attention probability \citep{kim2026ress}, and DuoAttention identifies the heads that require full attention by optimisation on synthetic data \citep{xiao2024duoattention}. It is therefore established that sparsification perturbs the pretrained computation and that output perturbation is a more informative criterion than attention mass. The contribution of the present work is a controlled analysis of how a fixed deployed structure interacts with pretraining history and adaptation procedure, taking into account sequence placement, padding and a designated readout token.
+
+\paragraph{Pretrained attention and fine-tuning stability.} Attention heads in pretrained BERT models attend to adjacent tokens, to separator tokens and broadly across the input \citep{clark2019does,kovaleva2019revealing}. Fine-tuning BERT-style models on small datasets fails for a fraction of random seeds \citep{devlin2019bert,dodge2020fine}; \citet{mosbach2021stability} attribute these failures to optimisation difficulties and recommend learning-rate warmup, bias correction and longer training. Any claim that sparsification causes or amplifies such failures must therefore be evaluated against a strong fine-tuning protocol applied to both sparse and dense models (Experiment~1). DeBERTa replaces absolute position embeddings by relative-position terms in a disentangled attention mechanism \citep{he2021deberta}, and DeBERTa-v3 is pretrained with the replaced-token-detection objective of ELECTRA \citep{clark2020electra,he2023debertav3}; whether the response of a pretrained model to a sparse mask depends on such differences has, to our knowledge, not been examined.
+
+% =================================================================
+\section{The deployed graph: communication, compatibility and adaptation}
+\label{sec:framework}
+
+\subsection{Masks, placements and the deployed graph}
+\label{sec:theory}
+
+Let $n=128$ denote the padded sequence length and $[n]=\{0,\dots,n-1\}$ the set of positions; position $0$ holds the \texttt{<s>} token, whose final representation is used by the classifier. A mask is a Boolean matrix $A\in\{0,1\}^{n\times n}$ with $A_{ij}=1$ if query $i$ may attend to key $j$. Unless stated otherwise, masks contain the diagonal and are applied in every layer and every head. If the heads of a layer use different masks, as for the BigBird-style mask of the exploratory benchmark, the communication results below apply to the union of the head graphs, since a position receives information through any of its heads; realised densities are then averaged over heads.
+
+\begin{definition}[Cayley mask and placement]
+Let $\Gamma$ be a group of order $n$, let $S\subseteq\Gamma\setminus\{e\}$ satisfy $S=S^{-1}$, and let $\phi:[n]\to\Gamma$ be a bijection, referred to as the \emph{placement}. The Cayley mask is defined by $A^\phi_{ij}=1$ if and only if $\phi(i)^{-1}\phi(j)\in S\cup\{e\}$. Its graph is $\Cay(\Gamma,S)$ with a self-loop at each vertex; it is undirected, $(|S|+1)$-regular and vertex-transitive. Masks with the same pair $(\Gamma,S)$ and different placements are isomorphic as graphs.
+\end{definition}
+
+For $\Gamma=\Z_n$ and $\phi$ the identity, we denote by $\hat S\subset(-n/2,n/2]$ the signed representatives of $S$. Dense attention corresponds to $\Cay(\Z_n,\Z_n\setminus\{0\})$; the existence of a Cayley mask that matches dense attention is therefore trivial. Table~\ref{tab:masks} lists the masks used in the exploratory benchmark, and Figure~\ref{fig:gallery} displays them.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/mask_gallery.pdf}
+\caption{Upper-left $64\times64$ block of each $128\times128$ mask (filled entries indicate permitted attention). The random-circulant panel shows the exact mask used in the benchmark; the BigBird panel shows head 1 of the saved 12-head mask. The final panel shows the hypercube $Q_7$ under the Gray-code placement, which is the attention pattern of the Hypercube Transformer \citep{wang2022dense}.}
+\label{fig:gallery}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Masks used in the exploratory benchmark. Degree is the mean number of attended keys per query, and density is the fraction of permitted query--key pairs. For BigBird, degree and density are averaged over heads; $\lambda_2$ is the mean headwise spectral gap of the symmetrized per-head graphs, adjacent-token coverage is averaged over heads, and reach and hops use the union of head edges. For other masks, these quantities are computed on the single mask graph. Reach is the fraction of valid tokens that can influence position 0 within 12 layers at $L=64$; hops is the number of layers required to reach all tokens at $L=128$.}
+\label{tab:masks}
+\small
+\begin{tabular}{llrrrrrr}
+\toprule
+Mask & Group & Degree & Density & $\lambda_2$ & Adj.\ cov. & Reach@64 & Hops@128 \\
+\midrule
+\input{tables/mask_props.tex}
+\end{tabular}
+\end{table}
+
+An input with $L\le n$ non-padded tokens occupies positions $[L]$; padded positions are excluded as keys and their outputs are discarded. The graph used by the model is therefore the induced subgraph $G_L=G[[L]]$, which we call the \emph{deployed graph}.
+
+\begin{proposition}[Distance-graph reduction]
+\label{prop:distance}
+Let $A$ be a Cayley mask on $\Z_n$ with $\phi=\mathrm{id}$, and let $m=\max_{s\in\hat S}|s|$. If $L\le n-m$, then $G_L$ is the distance graph $D_L(\hat S)$ on $[L]$, in which $i$ and $j$ are adjacent if and only if $j-i\in\pm\hat S$. If, in addition, $1\in\hat S$ and $m+1<L\le n-m$, then $G_L$ is not vertex-transitive.
+\end{proposition}
+\begin{proof}
+Let $i,j\in[L]$ with $j-i\equiv s\pmod n$ for some $s\in\hat S$. Then $|(j-i)-s|\le(L-1)+m<n$; since a multiple of $n$ with absolute value less than $n$ is zero, $j-i=s$. The converse is immediate. For the second statement, $G_L=D_L(\hat S)$ by the first. Let $\hat S^+=\{|s|:s\in\hat S\}$; since $L>m+1$, every $t\in\hat S^+$ satisfies $t<L-1$. Vertex $0$ has exactly $|\hat S^+|$ neighbours, whereas vertex $1$ has the same neighbours shifted by one together with vertex $0$. The two degrees differ; hence $G_L$ is not regular and, in particular, not vertex-transitive.
+\end{proof}
+
+The condition $L\le n-m$ is necessary: for dense attention ($m=64$) and $L=66$, the induced graph is $K_{66}$, which is vertex-transitive.
+
+\begin{corollary}
+\label{cor:local}
+For every $L\le 112$, the local window $|i-j|\le16$ and the circular window $\Cay(\Z_{128},\{\pm1,\dots,\pm16\})$ induce the same graph on $[L]$, and this graph is a subgraph of the graph induced by the window-with-dilations mask $\Cay(\Z_{128},\{\pm1,\dots,\pm16,\pm32,64\})$.
+\end{corollary}
+
+\paragraph{Nominal and realised budget.}
+\label{sec:realised}
+The attention budget effective on an evaluation set $\mathcal D$ is the realised density $\rho_{\mathrm{valid}}(A,\mathcal D)=\sum_{x}\lVert A_{L(x)}\rVert_0/\sum_xL(x)^2$, where $A_L$ denotes the upper-left $L\times L$ block of $A$. The local and window-with-dilations masks are exactly dense for $L\le17$ and retain 77\% of the query--key pairs at $L=32$, compared with nominal densities of 24\% and 28\% (Appendix~\ref{app:graphL}). On the GLUE development sets, the realised density of the local mask ranges from 0.35 on RTE to 0.97 on CoLA (Appendix~\ref{app:lengths}). We therefore distinguish two types of comparison. \emph{Replication comparisons} reproduce the conditions of the exploratory benchmark, in which the budgets of the masks differ; they establish whether an observation is reproducible, but not its cause. \emph{Budget-controlled comparisons} hold the realised density fixed at every input length, or report it and adjust for it explicitly. Each experiment specifies the type of comparison it makes.
+
+\subsection{Communication: reachability of the readout token}
+\label{sec:comm}
+
+\begin{proposition}[Receptive field]
+\label{prop:reach}
+Consider a $K$-layer encoder in which every attention sublayer is restricted by $G_L$ and all other sublayers act position-wise. The final representation at position $p$ can depend on the input token at position $j$ only if $G_L$ contains a path of length at most $K$ from $p$ to $j$, where edges are directed from queries to the keys they attend to.
+\end{proposition}
+\begin{proof}
+By induction on the number of layers: after layer $k$, the representation at position $i$ is a function of the layer-$(k-1)$ representations at the keys $j$ with $A_{ij}=1$, including $i$ itself through the residual connection; feed-forward and normalisation sublayers do not mix positions.
+\end{proof}
+
+The proposition does not depend on how positions are encoded. In DeBERTa, the relative-position terms enter the attention score of each query--key pair and are removed together with the pair by the mask; in both encoders, the classification head reads only the final representation at position 0.
+
+\begin{corollary}[Retrieval beyond the receptive field]
+\label{cor:impossible}
+Let the label $y$ depend only on the token at position $d$, and let this token be independent of all tokens within distance $K$ of position 0 in $G_L$. If $\mathrm{dist}_{G_L}(0,d)>K$, then every classifier that reads position 0 of such an encoder has population accuracy at most $\max_c\Pr(y=c)$, irrespective of its parameters. If, moreover, the evaluation set consists of counterfactual pairs that agree on all tokens except the token at position $d$ and carry opposite labels, then any deterministic classifier is correct on exactly one member of each pair, and its accuracy on this set is exactly 50\%.
+\end{corollary}
+\begin{proof}
+By Proposition~\ref{prop:reach}, the output of the classifier is a function of the tokens within distance $K$ of position 0, which are independent of $y$; no such function predicts $y$ with higher probability than the most frequent class. Within a counterfactual pair these tokens are identical, so a deterministic classifier assigns the same prediction to both members, of which exactly one carries that label.
+\end{proof}
+
+\begin{corollary}
+\label{cor:circ}
+Under the circulant mask $\Cay(\Z_{128},\{\pm1,\pm2,\pm3\})$ with $K=12$ and $L\le125$, the representation used by the classifier is invariant to every token at position 37 or later.
+\end{corollary}
+\begin{proof}
+By Proposition~\ref{prop:distance}, $G_L=D_L(\{1,2,3\})$, in which $\mathrm{dist}(0,j)=\lceil j/3\rceil$; this exceeds 12 if and only if $j\ge37$.
+\end{proof}
+
+\begin{proposition}[Exact reachability for hypercube and dyadic masks]
+\label{prop:hypercube}
+(i) Let $Q_d=\Cay(\Z_2^d,\{e_1,\dots,e_d\})$ be placed by binary expansion. For every $1\le L\le2^d$, the subgraph induced on $[L]$ satisfies $\mathrm{dist}_{G_L}(x,y)=\mathrm{Ham}(x,y)$; in particular, it is connected and has diameter at most $\lceil\log_2L\rceil$. (ii) For the dyadic circulant $\Cay(\Z_{2^d},\{\pm1,\pm2,\dots,\pm2^{d-1}\})$ and every $L$, $\mathrm{dist}_{G_L}(0,j)\le\mathrm{popcount}(j)\le d$.
+\end{proposition}
+\begin{proof}
+(i) Each edge changes a single bit, so graph distances are bounded below by Hamming distances. Starting from $x$, clear one at a time the bits that are set in $x$ but not in $y$; each step decreases the value, so the walk remains below $x<L$ and terminates at $x\wedge y$. Then set the bits of $y$ that are not set in $x\wedge y$; every vertex visited is a submask of $y$ and therefore at most $y<L$. (ii) Starting from $j$, subtract its lowest set bit $2^k$; the result is smaller than $j$ and hence lies in $[L]$, and $\pm2^k$ is a generator. Repeating this step reaches $0$ after $\mathrm{popcount}(j)$ steps.
+\end{proof}
+
+\begin{proposition}[Disconnection of circulants by padding]
+\label{prop:disconnect}
+Let $A$ be a Cayley mask on $\Z_n$ with $\phi=\mathrm{id}$ and $L\le n/2$, let $\hat S_L=\{s\in\hat S:|s|<L\}$, and let $q=\gcd(\hat S_L)$. If $q\ge2$, then every edge of $G_L$ connects positions that are congruent modulo $q$; consequently, $G_L$ has at least $\min(q,L)$ connected components, and position 0 is connected only to multiples of $q$.
+\end{proposition}
+\begin{proof}
+If $i,j\in[L]$ are adjacent, then $j-i\equiv s\pmod n$ for some $s\in\hat S$. Both $j-i$ and $s$ lie in $(-n/2,n/2]$, where each residue class has a unique representative; hence $j-i=s\in\hat S_L$ and $q$ divides $j-i$.
+\end{proof}
+
+The exact random-circulant mask of the exploratory benchmark has generator pairs $\{4,18,25,41,43,44,52,60\}$, recovered from the saved tensor (Appendix~\ref{app:hashes}). It is an instance of Proposition~\ref{prop:disconnect}: at $L=16$, its induced graph has four components and position 0 reaches only one quarter of the positions; by $L=32$ the prefix graph is connected. Reachability in the sense of Proposition~\ref{prop:reach} excludes one failure mode, namely complete structural inaccessibility. It does not imply that the information reaches the readout in a usable form; it may arrive only in late layers, be strongly attenuated, or pass through heads whose computation has been perturbed by the mask.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\linewidth]{figures/reach.pdf}
+\caption{Fraction of the $L$ non-padded tokens that can influence position 0 within 12 layers. The circulant mask excludes all positions beyond 36 (dotted line); narrower windows exclude more. The grey band summarizes reference random-circulant samples; the grey solid line shows the exact random-circulant mask used in the benchmark. The increase near $L=126$ corresponds to the appearance of wrap-around edges.}
+\label{fig:reach}
+\end{figure}
+
+\subsection{Compatibility: perturbation of the pretrained computation}
+\label{sec:compat}
+
+\begin{proposition}[Hard masking of a single head]
+\label{prop:perturb}
+Fix a query with dense attention distribution $p$ over the keys and value vectors $v_j$, and let the mask retain the set $S$ of keys with retained mass $R=\sum_{j\in S}p_j>0$. For fixed logits and values, hard masking yields $p^A_j=p_j\mathbf 1[j\in S]/R$, and
+\[
+\lVert p-p^A\rVert_1=2(1-R),\qquad o_A-o=(1-R)\,(\mu_S-\mu_{\bar S}),
+\]
+where $o=\sum_jp_jv_j$, $o_A=\sum_jp^A_jv_j$, and $\mu_S$ and $\mu_{\bar S}$ denote the $p$-weighted means of the retained and the removed value vectors ($\mu_{\bar S}=0$ if $R=1$).
+\end{proposition}
+\begin{proof}
+$\sum_{j\in S}|p_j-p_j/R|=1-R$ and $\sum_{j\notin S}p_j=1-R$. Since $o=R\mu_S+(1-R)\mu_{\bar S}$ and $o_A=\mu_S$, it follows that $o_A-o=(1-R)(\mu_S-\mu_{\bar S})$.
+\end{proof}
+
+Consequently, two masks that retain the same attention mass may perturb a head to very different extents. This is the single-head analogue of the observation of \citet{kim2026ress}. In the full network, the perturbation is transformed by the output projection and accumulates across layers; Section~\ref{sec:res-diag} therefore reports it at these points.
+
+\paragraph{Placements.} A change of placement alters the alignment of a graph with the sequence while leaving the graph unchanged. Two results constrain how distinct placements can be constructed.
+
+\begin{lemma}[Invariance under automorphisms]
+\label{lem:aut}
+If $\psi$ is an automorphism of $\Cay(\Gamma,S)$, then $A^{\psi\circ\phi}=A^\phi$ entrywise.
+\end{lemma}
+\begin{proof}
+$A^{\psi\circ\phi}_{ij}=\mathbf 1[\psi(\phi(i))\sim\psi(\phi(j))]=\mathbf 1[\phi(i)\sim\phi(j)]=A^\phi_{ij}$ by the definition of an automorphism.
+\end{proof}
+
+Distinct placements must therefore be constructed as bijections that are not related by an automorphism, and the resulting Boolean masks must be checked for duplicates before use.
+
+\begin{proposition}[Placement of the hypercube]
+\label{prop:gray}
+Under the binary placement, positions $i$ and $i+1$ are adjacent in $Q_d$ if and only if $i$ is even; hence exactly $\lceil(L-1)/2\rceil$ of the $L-1$ adjacent pairs in $[L]$ are connected. Under any placement along a Hamiltonian path of $Q_d$, including the reflected Gray code $\phi(i)=i\oplus\lfloor i/2\rfloor$ \citep{gray1953pulse}, all adjacent pairs are connected.
+\end{proposition}
+\begin{proof}
+Incrementing $i$ changes its $t$ trailing ones and the zero above them, so $\mathrm{Ham}(i,i+1)=t+1$, which equals 1 if and only if $i$ is even. Consecutive vertices of a Hamiltonian path are adjacent by definition, and consecutive reflected Gray codewords differ in exactly one bit.
+\end{proof}
+
+We call an ordering of the vertices of $Q_d$ \emph{recursive} if $d=0$, or if it lists all vertices of a $(d-1)$-dimensional subcube in a recursive order followed by all vertices of the complementary subcube in a recursive order. The binary placement, the reflected Gray code and the random Hamiltonian paths produced by our generator (Appendix~\ref{app:placements}) are recursive.
+
+\begin{proposition}[Deployed graphs of recursive placements]
+\label{prop:recursive}
+Let $\phi$ be a recursive placement of $Q_d$ and $1\le L\le2^d$. Then the set $\phi([L])$ of occupied vertices is the image of the binary initial segment $\{0,\dots,L-1\}$ under an automorphism of $Q_d$. Consequently, for any two recursive placements $\phi$ and $\psi$, the deployed graphs $G^\phi_L$ and $G^\psi_L$ are isomorphic as unrooted graphs at every $L$, and
+\[
+|E(G_L)|=\sum_{j=0}^{L-1}\mathrm{popcount}(j),\qquad \lVert A_L\rVert_0=L+2\sum_{j=0}^{L-1}\mathrm{popcount}(j),
+\]
+where the first count excludes self-loops. In particular, the binary, Gray and recursive Hamiltonian-path placements have identical realised density, degree sequence, spectrum and diameter of the deployed graph at every input length.
+\end{proposition}
+\begin{proof}
+By induction on $d$; the case $d=1$ is immediate. Let the ordering list a $(d-1)$-subcube $C_1=\{v:v_c=a\}$ followed by its complement $C_2$, each in a recursive order, and identify the binary label $x$ with its top bit $x_{d-1}$ and its remaining bits $x'$. If $L\le2^{d-1}$, the occupied set lies in $C_1$, and by induction it is the image of $\{0,\dots,L-1\}$ under an automorphism $\tau$ of the $(d-1)$-cube on the coordinates other than $c$; the map $\sigma(x)=\big(\tau(x'),\,v_c=a\oplus x_{d-1}\big)$ is an automorphism of $Q_d$ with the required property. If $L>2^{d-1}$, the occupied set is $C_1$ together with a prefix of length $L-2^{d-1}$ of the recursive ordering of $C_2$, which by induction is the image of $\{0,\dots,L-2^{d-1}-1\}$ under an automorphism $\tau$ of the $(d-1)$-cube; the same formula for $\sigma$ maps the labels with $x_{d-1}=0$ onto $C_1$ and the labels $2^{d-1}+\{0,\dots,L-2^{d-1}-1\}$ onto the occupied part of $C_2$. Automorphisms preserve induced subgraphs, which gives the isomorphism. In the binary initial segment, each $j$ is adjacent to exactly $\mathrm{popcount}(j)$ smaller vertices (obtained by clearing one set bit), all of which lie in the segment, which gives the edge count.
+\end{proof}
+
+The isomorphism in Proposition~\ref{prop:recursive} may depend on $L$ and need not map the readout vertex $\phi(0)$ to $\psi(0)$; it therefore does not imply that the sequence-indexed masks coincide, and the readout distances of different recursive placements can differ (Appendix~\ref{app:placements}). The underlying combinatorics are classical: binary initial segments maximise the number of induced edges among vertex sets of a given size, which is the edge-isoperimetric problem on the hypercube \citep{harper1964optimal,hart1976note,ellis2016structure}. Our use of these facts is as an experimental control for sparse attention.
+
+Placement thus provides a tightly controlled intervention: for every input, the deployed graphs of all recursive placements are isomorphic as unrooted graphs, so that the number of attended query--key pairs, the degree sequence, the spectrum and the diameter coincide. What differs is the labelling of the deployed graph by sequence positions, including the position of the readout. Placement therefore changes which sequence positions are connected, the graph distance between the readout and each position, and the set of pretrained interactions that are preserved. In $Q_3$ with all eight positions occupied, for example, position 7 is at distance three from the readout under the binary placement but at distance one under the Gray placement, so that a single-layer model can access it under one placement but not under the other, independently of any pretraining. A placement experiment is therefore \emph{an intervention that preserves the abstract graph and the realised budget while changing the alignment of the graph with sequence positions and with the pretrained computation}; it is not a pure test of compatibility. Matching adjacent-token coverage, moreover, controls a single locality statistic rather than locality in every relevant sense (Appendix~\ref{app:placements} reports the number of edges at offsets 2, 3 and 5 for each placement).
+
+\subsection{Adaptation: transition to the sparse mask}
+\label{sec:adapt}
+
+\begin{proposition}[Soft masking at fixed logits and values]
+\label{prop:soft}
+In the setting of Proposition~\ref{prop:perturb}, add $-\beta$ to the logits of the removed keys, $\beta\ge0$, with all logits and values otherwise fixed. Then
+\[
+o_\beta-o=f(\beta)\,(o_A-o),\qquad \lVert p-p^{(\beta)}\rVert_1=2(1-R)\,f(\beta),\qquad f(\beta)=\frac{R\,(1-e^{-\beta})}{R+(1-R)e^{-\beta}},
+\]
+and $f$ increases monotonically from $f(0)=0$ to $\lim_{\beta\to\infty}f(\beta)=1$.
+\end{proposition}
+\begin{proof}
+We have $p^{(\beta)}_j=p_j/Z$ for $j\in S$ and $p^{(\beta)}_j=p_je^{-\beta}/Z$ otherwise, with $Z=R+(1-R)e^{-\beta}$. Hence $o_\beta=(R\mu_S+(1-R)e^{-\beta}\mu_{\bar S})/Z$, and expanding $o_\beta-o$ gives $R(1-R)(1-e^{-\beta})(\mu_S-\mu_{\bar S})/Z=f(\beta)(o_A-o)$. The mass of $p^{(\beta)}$ on the removed keys is $(1-R)e^{-\beta}/Z$, so half the $\ell_1$ distance equals $(1-R)-(1-R)e^{-\beta}/Z=(1-R)f(\beta)$. With $u=e^{-\beta}$, $f=R(1-u)/(R+(1-R)u)$ satisfies $\mathrm{d}f/\mathrm{d}u=-R/(R+(1-R)u)^2<0$, and $u$ is decreasing in $\beta$.
+\end{proof}
+
+The proposition concerns a single head at fixed logits and values. It does not imply that a network trained under a schedule $\beta(t)$ follows a straight trajectory from its dense to its sparse representation, since the weights and the intermediate representations change during training. It does, however, give the schedule a precise local interpretation and shows that heads retaining little attention mass are displaced late and rapidly.
+
+\begin{definition}[Recovery from degeneracy and performance recovery]
+\label{def:rescue}
+For a mask $A$, a task and a resource budget, an adaptation protocol achieves \emph{recovery from degeneracy} if its probability of producing a degenerate (single-class) predictor is significantly lower than that of a reference protocol, and \emph{performance recovery} if its mean score over all seeds lies within a pre-specified margin $\varepsilon$ of a dense model trained with the corresponding protocol. Both notions are always stated relative to a specified reference protocol and resource budget.
+\end{definition}
+
+\subsection{Scope of the claims}
+\label{sec:hyp}
+
+Table~\ref{tab:claims} states, for each source of failure, the type of claim that the study can support. The decision rules that map each experimental outcome onto these claims were fixed in advance and are given in Appendix~\ref{app:plan}.
+
+\begin{table}[t]
+\centering
+\caption{Sources of failure, the type of claim that the present study can support for each, and the corresponding sections.}
+\label{tab:claims}
+\small
+\begin{tabular}{p{2.4cm}p{8.4cm}p{3.0cm}}
+\toprule
+Source & Type of claim & Location \\
+\midrule
+Communication & A theoretical result: under the independence assumptions of Corollary~\ref{cor:impossible}, information outside the receptive field cannot raise population accuracy above that of the best constant predictor. The implementation is verified by the audit; usable communication \emph{within} the receptive field is not tested. & Section~\ref{sec:comm}; App.~\ref{app:maskimpl} \\
+Compatibility & An empirical claim: at a fixed unrooted deployed graph and a fixed budget, placement changes the loss of the pretrained model on its pretraining objective and the outcome of fine-tuning. Whether such effects depend on pretraining history is not tested. & Section~\ref{sec:res2} \\
+Adaptation & A bounded claim: a specified protocol reduces the probability of degeneracy or increases the score under the same final mask and a specified resource budget, beyond its effect on the dense model. The failure of the tested protocols does not establish that no protocol succeeds. & Section~\ref{sec:res1} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =================================================================
+\section{Exploratory benchmark: sparse masks on GLUE}
+\label{sec:pilot}
+\label{sec:results}
+
+\paragraph{Setup.} We use RoBERTa-base with eager attention, a maximum sequence length of 128, five training epochs, and \texttt{adamw\_torch} (PyTorch AdamW; $\beta_1=0.9$, $\beta_2=0.999$, $\epsilon=10^{-8}$, bias correction enabled). The peak learning rate is $2\times10^{-5}$ with linear decay and no warmup; weight decay is 0.01 and gradient clipping is at norm 1.0. Training uses fp16 on a Tesla V100-PCIE-16GB, with per-device batches of 8 for training and 16 for evaluation, and seed and data seed 42. The checkpoint with the best development score is selected after each epoch. Full details are in Appendix~\ref{app:details}. Each mask is shared by all 12 layers; the six non-BigBird masks are also shared across heads, while BigBird has a separately sampled $128\times128$ mask for each of the 12 heads. The implementation audit passed before results were interpreted (Appendix~\ref{app:maskimpl}). We consider six sparse masks: four Cayley masks (window with dilations, circulant $\{\pm1,\pm2,\pm3\}$, hypercube $Q_7$ under the binary placement, and a random circulant with eight generator pairs), a local window and a BigBird-style pattern, alongside dense attention. For each primary metric we report the score $b_T$ of the best constant predictor, mark runs that predict a single class (\dg), and summarise results by the headroom recovered, $\HR_T(A)=(s_T(A)-b_T)/(s_T(\text{dense})-b_T)$, a descriptive normalisation that does not establish equivalence (Appendix~\ref{app:metrics}). All comparisons in the exploratory benchmark are replication comparisons, since the realised budgets of the masks differ.
+
+\begin{table}[t]
+\centering
+\caption{Results of the exploratory benchmark on the GLUE development sets for RoBERTa-base, with one seed per configuration. Degree is per query on the full mask (33 for the local window away from the sequence boundaries). Scores are percentages, except for MCC and correlation coefficients. \dg: a single class is predicted for all examples. First row: best constant predictor for each metric (for QQP, predicting ``non-duplicate'' maximises accuracy and predicting ``duplicate'' maximises F1).}
+\label{tab:main}
+\setlength{\tabcolsep}{3.5pt}
+\scriptsize
+\begin{tabular}{lrcccccccc}
+\toprule
+ & & CoLA & SST-2 & MRPC & QQP & STS-B & RTE & QNLI & MNLI \\
+Mask & Deg. & MCC & Acc & Acc / F1 & Acc / F1 & Pearson / Spearman & Acc & Acc & m / mm \\
+\midrule
+\input{tables/main_results.tex}
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\linewidth]{figures/headroom.pdf}
+\caption{Headroom recovered in the exploratory benchmark on the primary metric. A value of 0 corresponds to the best constant predictor and a value of 1 to the dense model. The negative QQP value corresponds to a run that predicts ``non-duplicate'' for every pair and therefore obtains a lower F1 score than the constant prediction ``duplicate''. \dg: degenerate run.}
+\label{fig:headroom}
+\end{figure}
+
+Since the exploratory benchmark uses a single seed and selects checkpoints on the evaluation set, its results serve to formulate hypotheses rather than to test them. We summarise them in six observations.
+
+\paragraph{O1. Window masks perform close to dense attention where their realised sparsity is low.} The window-with-dilations and local masks attain an MCC of 0.601 and 0.591 on CoLA (dense: 0.598) and accuracies of 92.78\% and 93.12\% on SST-2 (dense: 93.46\%), and their F1 scores on QQP are 2.0 and 2.4 points below that of the dense model. Both masks are exactly dense on inputs of at most 17 tokens, which make up 90.1\% of the CoLA development set; their realised density is 0.97 on CoLA, 0.75 on SST-2 and 0.68 on QQP (Appendix~\ref{app:lengths}). The CoLA result in particular therefore provides almost no information on the attainable degree of sparsity. The controlled experiments therefore also report results stratified by input length (Appendix~\ref{app:strata}).
+
+\paragraph{O2. The binary-placed hypercube yields degenerate predictions on CoLA despite complete reachability.} The masks that connect every pair of adjacent tokens recover at least 78\% of the headroom on both CoLA and SST-2. The binary-placed hypercube, which connects half of these pairs, and the random circulant, which connects none, are the only masks with degenerate predictions on CoLA. Their spectral gaps are 0.29 and 0.45, respectively, the largest among the sparse Cayley masks (Figure~\ref{fig:scatter}); the latter value is computed from the exact generator set recovered from the saved mask tensor. Insufficient reachability cannot account for the result for the hypercube (Proposition~\ref{prop:hypercube}); locality is, however, confounded with realised density, and under the Gray placement the hypercube approaches the performance of BERT when pretrained from scratch \citep{wang2022dense}. These points motivate Experiment~2.
+
+\paragraph{O3. The addition of edges to a window mask is associated with degenerate predictions on QNLI.} On inputs of at most 112 tokens, the window-with-dilations mask contains every edge of the local mask (Corollary~\ref{cor:local}); nevertheless, the local mask recovers 71\% of the QNLI headroom, whereas the window-with-dilations mask yields degenerate predictions. The two masks differ little in budget: their realised densities on QNLI are 0.474 and 0.490. The training loss of the window-with-dilations run remains at $\ln2$ throughout training, whereas that of the local run decreases within the first epoch (Appendix~\ref{app:curves}). Additional edges cannot reduce reachability, but they alter the softmax normalisation and hence the pretrained computation (Proposition~\ref{prop:perturb}); the comparison isolates neither effect. This observation motivates Experiment~1 and the perturbation diagnostics of Section~\ref{sec:res-diag}.
+
+\paragraph{O4. Window masks yield degenerate predictions on MNLI, whereas a mask with global tokens does not.} The local and window-with-dilations masks provide complete reachability and adjacent-token coverage and learn QNLI or QQP, yet both predict a single class on MNLI under the three-epoch and the five-epoch schedule, with mean training losses within 0.004 nats of $\ln3$ (Appendix~\ref{app:loss}); in the five-epoch runs, the training loss remains at $\ln3$ from the first logged step (Appendix~\ref{app:curves}), although the realised density of the local mask on MNLI is 0.54. The BigBird-style mask, in which positions 0 and 1 attend to and are attended by every token, is the only sparse mask that learns MNLI (78.88\%, 85\% of the headroom). For reasons of cost, MNLI is not part of the controlled study (Section~\ref{sec:limits}).
+
+\paragraph{O5. The circulant readout has a limited receptive field, but this alone does not account for all sentence-pair failures.} The $\{\pm1,\pm2,\pm3\}$ circulant recovers 78\% and 81\% of the headroom on CoLA and SST-2 but yields degenerate predictions on MRPC, QQP, QNLI and MNLI. By Corollary~\ref{cor:circ}, tokens at position 37 or later cannot influence the classifier. The second segment begins after position 36, and is therefore entirely inaccessible, for 13.7\% of MRPC, 1.6\% of QQP, 0.04\% of QNLI and 21.8\% of MNLI development inputs (Table~\ref{tab:lengths}). The receptive-field limit is therefore relevant for a subset of examples, especially in MNLI, but it does not explain the degenerate QNLI and QQP runs, in which the classifier has access to the beginning of both segments for almost every input. On QQP, moreover, the training loss of the circulant run first decreases and then returns to the entropy of the label distribution early in the first epoch (observation O6).
+
+\paragraph{O6. Degenerate runs are failures to leave the initial plateau, and several outcomes are truncated by the training budget.} The learning curves (Appendix~\ref{app:curves}) show four patterns. (a) In every degenerate five-epoch run except one, the training loss remains at the entropy of the training-label distribution (0.607 nats for CoLA, $\ln2$ for QNLI and RTE, $\ln3$ for MNLI) from the first logged step to the end of training: these models learn the class frequencies and nothing else. The degenerate outcomes are therefore failures of optimisation, not consequences of overfitting or of checkpoint selection. (b) The exception, the circulant run on QQP, first reduces the training loss and then returns to the label entropy, where it remains; the binary-placed hypercube on QQP undergoes a transient episode of the same kind between the first and second epochs and subsequently recovers. (c) Several runs leave the plateau late. On QNLI, the random circulant and the binary-placed hypercube depart from it during the fourth and fifth epochs, respectively, and reach 58.3\% and 59.5\% development accuracy at the end of training; on RTE, the local and window-with-dilations masks depart from it after approximately three epochs, and even the dense model remains on it for almost two epochs. On STS-B, the training loss of the BigBird-style, hypercube, circulant and random circulant runs is still decreasing at the end of training. (d) On MRPC, and to a lesser degree on RTE, the local, window-with-dilations and BigBird-style runs reduce the training loss substantially while the development loss increases and the development score remains close to that of the constant predictor; these runs fit the training data without generalising, which is distinct from degeneracy. Patterns (a) and (c) imply that a degenerate outcome after five epochs is a right-censored observation of the time required to leave the plateau, not evidence that the task cannot be learned under the mask. Pattern (b) indicates instability under the original protocol, which uses mixed precision and no warmup. These observations motivate the time-to-escape outcome and condition (S$^{+}$) of Experiment~1.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{figures/single_sentence_scatter.pdf}
+\caption{Exploratory benchmark: headroom recovered on single-sentence tasks (mean over CoLA and SST-2) against adjacent-token coverage (left) and the spectral gap of the full mask (right). With six masks and one seed each, the figure illustrates a pattern rather than an estimated correlation.}
+\label{fig:scatter}
+\end{figure}
+
+% =================================================================
+\section{Experimental setup}
+\label{sec:protocol}
+
+\paragraph{Models and tasks.} The controlled experiments use RoBERTa-base and DeBERTa-v3-base, both under the original protocol of the exploratory benchmark (Table~\ref{tab:hparams}) unless a condition specifies otherwise; the protocol was not tuned for either model, and the dense controls measure its effect on each. The two models use different tokenizers, so that input lengths and realised densities are computed separately for each (Appendix~\ref{app:lengths}); the mask implementation of each model is audited separately (Appendix~\ref{app:maskimpl}). The experiments use seven of the eight GLUE tasks. CoLA, SST-2, MRPC, STS-B, RTE and QNLI are used with all masks and placements. QQP, whose training set of 364{,}000 pairs makes a run as expensive as 35 runs on CoLA, is used only for the principal placement contrast. MNLI, the most expensive task, is not used; the degenerate outcomes it produced in the benchmark (observation O4) are not re-examined. The development sets of MRPC (408 pairs) and RTE (277 pairs) are small, so that more seeds are used for these tasks; STS-B is a regression task, for which degeneracy and the escape step are not defined. All results are additionally reported stratified by input length (Appendix~\ref{app:strata}).
+
+\paragraph{Experiment 1: adaptation under a fixed final mask.} Three configurations from the benchmark are studied in both encoders: the binary-placed hypercube on CoLA (observation O2), with 20 seeds; the window with dilations on QNLI (observation O3), with 5 seeds, for which the local window on QNLI serves as reference; and the local window on RTE, with 20 seeds, which left the initial loss plateau only after about three epochs (observation O6) and therefore tests directly whether outcomes are limited by the training budget. Each configuration is trained under four conditions that share the final hard mask, which is also used for evaluation. (P) is the original protocol. (S) is identical to (P), with the same number of steps, except for a linear learning-rate warmup over the first 10\% of the steps; since (P) already uses AdamW with bias correction, gradient clipping and linear decay (Table~\ref{tab:hparams}), warmup is the only measure recommended by \citet{mosbach2021stability} that (P) lacks. (S$^{+}$) is (S) with three times as many steps. (G) is a gradual transition: a logit bias of $-\beta(t)$ on the removed query--key pairs, with $\beta$ increasing linearly over the first half of training to a value at which $f(\beta)>0.999$ for every head (Proposition~\ref{prop:soft}) and the hard mask thereafter; padding is masked throughout, and optimiser settings, training tokens, data order and checkpoint selection are identical to (S). The dense model is trained under (P), (S) and (S$^{+}$) with the same seeds. For RoBERTa-base, condition (P) also tests whether the degenerate outcomes of the benchmark are reproduced under independent checkpoint selection; for DeBERTa-v3-base, it tests whether the same configurations fail at all. For each configuration with a degenerate outcome under (P), one seed is repeated in single precision. Besides the score and the occurrence of degeneracy, we record the \emph{escape step}: the first step at which the training loss, smoothed by a rolling median over 0.05 epochs, falls below the entropy of the training-label distribution minus 0.05 nats; runs that never meet this criterion are right-censored at the end of training (observation O6).
+
+\paragraph{Experiment 2: placements of a single abstract graph.} We compare five placements of $Q_7$: binary; Gray, which is the attention pattern of the Hypercube Transformer \citep{wang2022dense}; and three recursive random Hamiltonian paths (Appendix~\ref{app:placements}). All five are recursive, so that their deployed graphs are isomorphic as unrooted graphs, with identical realised density, at every input length (Proposition~\ref{prop:recursive}); the last four connect every pair of adjacent tokens and differ at larger offsets. (2-i) Before any training, we measure the loss of each pretrained model on its pretraining objective under each placement and under dense attention, on 128-token windows of the WikiText-103 validation set; in this setting all placements are fully occupied and isomorphic. For RoBERTa-base, this is the masked-language-model loss, with 15\% of the tokens masked by the standard procedure. For DeBERTa-v3-base, it is the binary cross-entropy of the replaced-token-detection head contained in the released checkpoint, on windows in which 15\% of the tokens are replaced by tokens sampled from the unigram distribution of its vocabulary on the corpus. The generator used in the pretraining of DeBERTa-v3 has not been released, so this is a fixed proxy of the pretraining objective; it is used only to compare placements within the model, and the masked or replaced positions are identical for all placements. As a check, the head must detect the replacements well above chance under dense attention. (2-ii) We fine-tune each model under (P) with all five placements on CoLA (20 seeds), SST-2 (5 seeds), MRPC, STS-B and RTE (10 seeds each) and QNLI (5 seeds), and with the binary and the Gray placement only on QQP (3 seeds); the binary placement on CoLA and the dense runs on CoLA, QNLI and RTE are shared with Experiment~1. Inference rests on two contrasts fixed in advance: the signed difference between the Gray and the binary placement, for every task, and a permutation test of equality among the four placements that connect all adjacent tokens, with the six tasks that include all placements pooled in a model with task and placement effects. The two encoders are analysed separately with identical procedures, and their results are compared but not pooled.
+
+\paragraph{Perturbation diagnostics.} For every sparse mask of the two experiments and for each encoder, we compute on 512 development inputs of each task, before fine-tuning, the retained attention mass per layer, the output perturbation of a single masked layer on the inputs that the dense model provides to it, the accumulated perturbation with all layers masked, and the perturbation of the representation at position 0, each relative to the norm of the corresponding dense quantity.
+
+\paragraph{Selection and reporting.} Checkpoints are selected on a held-out 10\% split of the training data; the GLUE development sets are used exclusively for reporting. The \emph{original protocol} (P) is that of the exploratory benchmark (Table~\ref{tab:hparams}). Condition (S) of Experiment~1 adds a linear warmup over the first 10\% of the steps while retaining AdamW bias correction, and uses the same number of optimisation steps as (P). Since (P) already uses bias correction, warmup is the only change to the optimiser schedule in (S); the separate condition (S$^+$) triples the number of steps.
+
+\paragraph{Statistical analysis} (complete plan in Appendix~\ref{app:stats}). Raw task metrics are the primary outcomes, and the mean over all seeds, including degenerate runs, is the primary summary statistic; means over non-degenerate runs are reported as supplementary information. Proximity to the dense model is assessed against a margin fixed in advance (1 point of accuracy or F1; 0.01 MCC or correlation) using 95\% paired bootstrap intervals for the difference between sparse and dense models, in which seeds and evaluation examples are resampled jointly while preserving the pairing of runs that share a seed and of predictions on the same example. Failure probabilities are reported with Wilson intervals. With five seeds and no observed failure, the upper limit of the 95\% interval is 43\%; we therefore report ``no failures observed'' rather than ``stable'' unless substantially more seeds are run.
+
+\paragraph{Interpretation of outcomes.} Each confirmatory comparison is classified as \emph{supported}, \emph{practically absent} or \emph{inconclusive} (Appendix~\ref{app:stats}); an outcome that is not supported is not, by itself, evidence that an effect is absent.
+
+\paragraph{Implementation audit.} The audit verifies that an all-ones mask reproduces the outputs and gradients of dense attention exactly; that masked attention probabilities are exactly zero; that the invariance of Corollary~\ref{cor:circ} holds (modifying token 45 of a 60-token input leaves the logits of the circulant model unchanged, whereas modifying token 20 does not); that the deployed masks are identical as tensors across tasks; and that every set of placements is free of duplicates (Lemma~\ref{lem:aut}). It has been completed for the masks of the exploratory benchmark, in the precision used in training, and every check was passed (Appendix~\ref{app:maskimpl}). It is repeated for each new mask before any run with that mask is interpreted.
+
+
+% =================================================================
+\section{Results: adaptation under a fixed final mask}
+\label{sec:res1}
+
+Table~\ref{tab:exp1main} reports, for each configuration and condition, the mean score over all seeds and the number of degenerate seeds; Table~\ref{tab:exp1tests} reports the contrasts fixed in advance, and Figure~\ref{fig:exp1} the probability of degeneracy and the distribution of escape steps. All numbers quoted below are taken from \texttt{data/exp1\_summary.json}.
+
+\begin{table}[t]
+\centering
+\caption{Experiment 1: mean score over all seeds (MCC for CoLA, accuracy in \% for QNLI and RTE), with the number of degenerate seeds in parentheses, for each encoder. All conditions of a configuration use the same final mask; the dense rows give the effect of each protocol in the absence of sparsity.}
+\label{tab:exp1main}
+\small
+\resulttable{tables/exp1_main.tex}{run scripts/analyse\_exp1.py}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Experiment 1: contrasts fixed in advance. Score differences are given with 95\% bootstrap intervals over seeds and examples; differences in the probability of degeneracy with paired score intervals \citep{newcombe1998improved}; escape steps are compared with a log-rank test stratified by seed. Difference-in-differences: change of the sparse model minus change of the dense model under the same change of protocol.}
+\label{tab:exp1tests}
+\scriptsize
+\resulttable{tables/exp1_tests.tex}{run scripts/analyse\_exp1.py}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\resultfigure{figures/exp1.pdf}{\linewidth}{Figure: (a) probability of degeneracy with Wilson intervals for each condition; (b, c) cumulative fraction of seeds that have left the loss plateau, as a function of the training step, for each condition.}
+\caption{Experiment 1, RoBERTa-base (top) and DeBERTa-v3-base (bottom). (a, e) Probability of degeneracy with 95\% Wilson intervals. (b--d, f--h) Kaplan--Meier estimates of the fraction of seeds that have left the initial loss plateau, as a function of the training step relative to the length of (P); the dashed line shows the dense model under (P).}
+\label{fig:exp1}
+\end{figure}
+
+\paragraph{Confirmation under the original protocol.} \pending{For each encoder and configuration: the number of degenerate seeds of the sparse and of the dense model under (P), the paired difference in the probability of degeneracy with its interval and the McNemar $p$-value, and the classification of observations O2 and O3 (supported, practically absent or inconclusive; keys \texttt{tests.*.deg\_sparse\_minus\_dense\_P}). For QNLI, the difference between the local window and the window with dilations. One sentence on the single-precision repetition (Table~\ref{tab:fp32}).}
+
+\paragraph{Protocol and training budget.} \pending{For each encoder and configuration: the change in the probability of degeneracy and in the score from (P) to (S) and from (P) to (S$^{+}$), the corresponding difference-in-differences relative to the dense model, and their classification. State whether the escape steps under (S) are censored and whether (S$^{+}$) recovers outcomes that (S) does not; conclude, following Appendix~\ref{app:plan}, whether the degenerate outcome is a property of the protocol, of the budget, or persists under the tested protocols.}
+
+\paragraph{Gradual transition.} \pending{For each encoder and configuration: the difference between (G) and (S) in score and in the probability of degeneracy, with intervals, and the log-rank comparison of their escape steps; state whether the gradual transition provides a benefit beyond the strong hard-mask baseline at matched training tokens.}
+
+\paragraph{Comparison of the encoders.} \pending{Two sentences: whether the degenerate outcomes and their dependence on the protocol and budget are the same in RoBERTa-base and DeBERTa-v3-base, and, if not, in which configuration they differ.}
+
+% =================================================================
+\section{Results: placements of a single abstract graph}
+\label{sec:res2}
+
+Table~\ref{tab:exp2mlm} reports the loss of each pretrained model on its pretraining objective under each placement, and Figure~\ref{fig:exp2} and Table~\ref{tab:exp2tests} the fine-tuning outcomes; scores for each task and placement are given in Appendix~\ref{app:addresults}. All numbers quoted below are taken from \texttt{data/exp2\_summary.json}.
+
+\begin{table}[t]
+\centering
+\caption{Experiment 2 (2-i): loss of each pretrained model on its pretraining objective, without training, on 128-token windows of the WikiText-103 validation set, with 95\% intervals obtained by resampling windows: masked-language-model (MLM) loss for RoBERTa-base and replaced-token-detection (RTD) loss with unigram replacements for DeBERTa-v3-base. The masked or replaced positions are identical for all placements; losses are comparable within a model only. Equality test: permutation test of equality among the Gray and the three Hamiltonian-path placements.}
+\label{tab:exp2mlm}
+\scriptsize
+\resulttable{tables/exp2_objective.tex}{run scripts/analyse\_exp2.py}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\resultfigure{figures/exp2.pdf}{\linewidth}{Figure: for each encoder, (a) pretraining-objective loss per placement; (b) headroom recovered by each placement on each task, mean over all seeds with 95\% intervals.}
+\caption{Experiment 2, RoBERTa-base (top) and DeBERTa-v3-base (bottom). (a, c) Pretraining-objective loss of the pretrained model under each placement, without training; the dashed line shows dense attention. (b, d) Headroom recovered by each placement on each task after fine-tuning, $(s-b_T)/(s_{\mathrm{dense}}-b_T)$ with the best constant predictor $b_T$, mean over all seeds with 95\% interval; red numbers give the number of degenerate seeds. On QQP, only the binary and the Gray placement are run. Headroom is a descriptive normalisation; inference uses the raw contrasts of Table~\ref{tab:exp2tests}.}
+\label{fig:exp2}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Experiment 2 (2-ii): contrasts fixed in advance. Gray $-$ binary: difference in the primary metric with a 95\% bootstrap interval and bootstrap $p$-value (seeds and examples resampled jointly), Holm-adjusted over the seven tasks. Pooled analyses use scores standardised by the within-placement standard deviation of each task; the equality test permutes placement labels within each task and seed. The encoders are analysed separately.}
+\label{tab:exp2tests}
+\scriptsize
+\resulttable{tables/exp2_tests.tex}{run scripts/analyse\_exp2.py}
+\end{table}
+
+\paragraph{The pretrained models before training.} \pending{For each encoder: the pretraining-objective loss under each placement relative to dense attention, the Gray $-$ binary difference with its interval and classification (margin 0.01 nats), and the result of the equality test among the four placements that connect adjacent tokens (keys \texttt{<model>.objective.*}); for DeBERTa-v3-base, also the detection performance of the head under dense attention.}
+
+\paragraph{Fine-tuning.} \pending{For each encoder: the Gray $-$ binary difference per task and pooled, with intervals and Holm-adjusted $p$-values; the result of the equality test among the four placements that connect adjacent tokens; the number of degenerate seeds per placement on CoLA. Conclude, following Appendix~\ref{app:plan}, whether the unrooted deployed graph and the realised budget determine the behaviour of the pretrained model, and whether the ordering of the placements agrees with that of the pretraining-objective loss. Then one or two sentences comparing the encoders, in particular whether placement matters more in the encoder with relative position encoding.}
+
+\subsection{Perturbation diagnostics}
+\label{sec:res-diag}
+
+\begin{table}[t]
+\centering
+\caption{Perturbation of each pretrained model before fine-tuning, averaged over layers and over the development inputs of CoLA, SST-2 and QNLI. Output perturbations are relative to the norm of the corresponding dense output.}
+\label{tab:diag}
+\small
+\resulttable{tables/diag.tex}{run scripts/analyse\_exp2.py with diagnostics.json}
+\end{table}
+
+Table~\ref{tab:diag} reports the perturbation measures for both encoders. With seven distinct sparse masks per encoder, we report them descriptively and do not fit a model that predicts outcomes from them. \pending{Two sentences: how the window with dilations and the local window differ in retained mass and in output perturbation (observation O3, Proposition~\ref{prop:perturb}), and whether the placements differ in perturbation although their realised budgets coincide.}
+
+% =================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Adaptation.} \pending{Three to four sentences stating the strongest claim about adaptation that Experiment~1 supports for each encoder, in the bounded form of Table~\ref{tab:claims}: whether the degenerate outcomes of the benchmark are properties of the mask, of the protocol or of the training budget, and whether sparsification amplifies the sensitivity to the protocol relative to the dense model. State whether the claim holds for both encoders.}
+
+\paragraph{Placement and compatibility.} \pending{Three to four sentences on Experiment~2: whether the abstract graph and the realised budget determine the behaviour of the pretrained model, whether the effect is already present in the pretraining-objective loss before training, and what the comparison of the binary and the Gray placement implies for the attention pattern of the Hypercube Transformer when it is imposed on a dense-pretrained model, and whether the effect of placement differs between absolute and relative position encoding.}
+
+\paragraph{Implications for the evaluation of sparse attention.} Independently of the outcomes of the two experiments, the exploratory benchmark shows how readily the evaluation of a sparse mask on a pretrained model can be misread. The nominal density of a mask can differ greatly from the fraction of query--key pairs it retains on a given dataset: the two window masks retain 97\% of the pairs on CoLA and 35--38\% on RTE. Single-seed scores do not distinguish a model that has learned the task from one that predicts a single class, unless the best constant predictor is reported alongside. A degenerate outcome after a fixed number of epochs can be a right-censored observation of the time required to leave the initial loss plateau, and the learning curves are needed to tell the two apart. An evaluation of a sparse mask on a dense-pretrained model should therefore report the realised density on the evaluation data, the score of the best constant predictor, the frequency of degenerate runs over several seeds, and the training trajectory, and should compare protocols on the sparse and the dense model alike. Placements of one graph at an identical realised budget, as constructed in Proposition~\ref{prop:recursive}, provide a control for the structural explanations that such evaluations usually invoke.
+
+\paragraph{Future work.} Four questions are left open. First, whether the effects of placement depend on the placement used during pretraining, which requires pretraining models under different placements and fine-tuning each under every placement. Second, whether continued masked-language-model pretraining under the mask confers a benefit beyond the same amount of additional training under dense attention. Third, whether the findings extend to MNLI, to larger models and to recent encoders with rotary position embeddings and long contexts, such as ModernBERT \citep{warner2024modernbert}, at sequence lengths at which sparse attention reduces cost. Fourth, how much usable communication falls short of reachability within the receptive field, which synthetic retrieval tasks with counterfactual development pairs can measure exactly.
+
+% =================================================================
+\section{Limitations}
+\label{sec:limits}
+
+\paragraph{Evidence from the exploratory benchmark.} The exploratory benchmark uses a single seed and selects checkpoints on the evaluation set; all claims made in the abstract rest on the controlled study.
+
+\paragraph{Two encoders and three tasks.} The controlled results concern two base-size encoders, RoBERTa-base and DeBERTa-v3-base, on seven GLUE tasks; MNLI and larger models are not examined, and QQP is used only for the comparison of the binary and the Gray placement. The small development sets of MRPC and RTE make their task-specific estimates imprecise despite the larger number of seeds. The two encoders differ in several respects at once (position encoding, pretraining objective, tokenizer and corpus), so that agreement between them supports the generality of a finding across these differences, whereas a disagreement cannot be attributed to a single component. The original protocol was not tuned for either model.
+
+\paragraph{Proxy objective for DeBERTa-v3.} The replaced-token-detection loss of DeBERTa-v3-base is measured with unigram replacements rather than with the replacements of its pretraining generator, which has not been released. It is therefore a proxy, suitable for comparing placements within the model but not for comparing the two models.
+
+\paragraph{Pretraining history.} The study does not vary the pretraining of the models. A placement effect in Experiment~2 can arise from incompatibility with the dense-pretrained computation or from the change in graph distances from the readout, and the study does not fully separate the two; the pretraining-objective loss of the pretrained models is the most direct evidence it provides.
+
+\paragraph{Finite set of protocols.} Conclusions about adaptation are limited to the protocols and budgets that were tested; a mask that none of the tested protocols recovers is not thereby shown to be unrecoverable. Continued pretraining under the mask is not tested.
+
+\paragraph{Scale and sequence length.} The study considers a base-size encoder at sequence length 128, a regime in which sparse attention does not reduce computational cost. No claims regarding efficiency are made.
+
+\paragraph{Mask families.} The Cayley masks studied are restricted to abelian groups ($\Z_{128}$ and $\Z_2^7$) and are shared by all layers and heads; only the BigBird-style baseline uses a different pattern in each head. Non-abelian Cayley graphs \citep{wilson2025cayley}, head-specific masks and learned masks \citep{shi2021sparsebert,xiao2024duoattention} are not considered.
+
+% =================================================================
+\section{Conclusion}
+
+We asked to what extent the outcome of imposing a fixed sparse attention structure on dense-pretrained encoders depends on the adaptation procedure and on the placement of the attention graph along the sequence. Using Cayley masks, for which the deployed graph can be characterised exactly and placements can be varied at an identical realised budget, we separated failures of communication, compatibility and adaptation. \pending{Two or three sentences: the outcome of Experiment~1 and the outcome of Experiment~2 in RoBERTa-base and DeBERTa-v3-base, and whether the encoders agree.} \pending{One sentence on the implication for the evaluation of sparse attention in dense-pretrained models, consistent with Section~\ref{sec:discussion}.}
+
+\subsubsection*{Broader impact statement}
+This is a methodological study of attention structure in pretrained encoders on standard benchmarks. We do not anticipate direct negative societal impacts beyond those associated with the underlying models and datasets.
+
+\subsubsection*{Reproducibility statement}
+All masks are deterministic functions of the parameters given in Section~\ref{sec:framework} and the seeds listed in Appendix~\ref{app:hashes}. The accompanying scripts reproduce every table, figure and graph statistic of the exploratory benchmark from the raw results file, verify every proposition numerically (Appendix~\ref{app:verify}), generate the placements and the additional masks, and compute the perturbation measures, and produce every table and figure of Sections~
+ef{sec:res1} and~
+ef{sec:res2} from the run outputs. \pending{link to anonymised repository.}
+
+\bibliography{references}
+\bibliographystyle{tmlr}
+
+% =================================================================
+\appendix
+
+\paragraph{Overview of the appendices.} Appendices~\ref{app:metrics}--\ref{app:rcfamily} document the protocol of the exploratory benchmark, the evaluation metrics and the graph-theoretic analysis, including the implementation audit and the numerical verification of every proposition. Appendices~\ref{app:loss}--\ref{app:lengths} report further results and diagnostics of the exploratory benchmark, and Appendix~\ref{app:hashes} identifies its mask files. Appendix~\ref{app:placements} describes the hypercube placements. Appendix~\ref{app:plan} gives the analysis plan of the controlled study as fixed before the runs, Appendix~\ref{app:stats} the statistical procedures, Appendix~\ref{app:addresults} additional results and Appendix~\ref{app:compute} the computational cost.
+
+% -----------------------------------------------------------------
+\section{Metrics, baselines and degenerate runs}
+\label{app:metrics}
+
+\paragraph{Primary metrics.} For each task, the primary metric is the metric used for checkpoint selection (Table~\ref{tab:baselines}). For MRPC and QQP, the positive class for F1 is ``paraphrase'' and ``duplicate'', respectively. The secondary metrics in Table~\ref{tab:main} (accuracy for MRPC and QQP, Spearman correlation for STS-B and mismatched accuracy for MNLI) are reported but not used for selection.
+
+\paragraph{Constant baselines.} The baseline $b_T$ is the highest development-set score attained by any constant prediction on the primary metric of task $T$. For accuracy, this is the score of the majority class. For MCC and correlation coefficients, a constant prediction yields an undefined value (zero variance), which we report as 0. For F1, the best constant prediction is always the positive class. For MRPC this coincides with the majority class (81.22); for QQP, the majority class is negative and yields an F1 score of 0, whereas the constant prediction ``duplicate'' yields $2p/(1+p)=53.82$ with $p=14885/40430$. Table~\ref{tab:baselines} lists the class counts. Except where indicated, these were derived from the degenerate runs: a run that predicts a single class attains an accuracy equal to the proportion of that class, so that, for example, the accuracy of 68.38\% of the MRPC circulant run on 408 pairs implies 279 paraphrases. The MNLI counts combine the class-0 predictions of the degenerate five-epoch runs with the class-1 predictions of the degenerate three-epoch runs. The baseline on MNLI-mismatched is 35.22\%.
+
+\begin{table}[H]
+\centering
+\caption{Development sets, class counts and constant baselines. $^a$Taken from the GLUE development files; these counts cannot be derived from our runs, since no run on these tasks with logged accuracy predicted a single class.}
+\label{tab:baselines}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrllll}
+\toprule
+Task & Dev size & Class counts & Primary metric & Constant predictor & $b_T$ \\
+\midrule
+\input{tables/baselines.tex}
+\end{tabular}
+\end{table}
+
+\paragraph{Headroom recovered.} $\HR_T(A)=(s_T(A)-b_T)/(s_T(\text{dense})-b_T)$. For example, the local mask attains an F1 score of 82.35 on MRPC, compared with a baseline of 81.22 and a dense score of 91.93, so that $\HR=(82.35-81.22)/(91.93-81.22)=0.11$. $\HR$ is sensitive to noise when the denominator is small; among the metrics expressed as percentages, the smallest denominator is that of MRPC (10.7 F1 points), and the single-seed MRPC values in Figure~\ref{fig:headroom} are correspondingly the least precise. Values slightly above 1 arise when a sparse run marginally exceeds the dense run. One value is negative: the QQP circulant run predicts ``non-duplicate'' for every pair and therefore obtains an F1 score of 0, below that of the best constant prediction ($\HR=-1.57$). Since $\HR$ depends on the choice of baseline (the QQP window-with-dilations run recovers 98\% of the margin over the majority-class F1 score of 0, but 94\% of the margin over 53.82), the main text reports proximity to the dense model as raw differences.
+
+\paragraph{Degenerate runs.} A run is classified as degenerate if the selected checkpoint assigns every development example to the same class, as determined from the predicted-class counts recorded at evaluation. STS-B is a regression task without such counts; no STS-B run produced constant outputs. A run is classified as \emph{near-degenerate} if its minority predicted class accounts for less than 5\% of the development set. Four MRPC runs are near-degenerate (window with dilations 3.7\%, hypercube 3.2\%, random circulant 1.5\%, BigBird-style 4.7\%); they are not counted as degenerate in any analysis.
+
+% -----------------------------------------------------------------
+\section{Exploratory benchmark: experimental details and computational cost}
+\label{app:details}
+
+\begin{table}[H]
+\centering
+\caption{Training configuration of the exploratory benchmark, identical for all tasks and masks unless stated otherwise. The five-epoch benchmark comprises 56 runs (eight tasks by seven attention conditions); the additional three-epoch MNLI comparison is reported separately in Appendix~\ref{app:mnli}.}
+\label{tab:hparams}
+\small
+\begin{tabular}{ll}
+\toprule
+Model & RoBERTa-base pretrained checkpoint; classifier reads position 0 \\
+Attention & eager implementation; masks shared by all 12 layers; BigBird mask varies by head \\
+Maximum length & 128 tokens; longer inputs truncated \\
+Epochs & 5 (MNLI additionally 3, Appendix~\ref{app:mnli}) \\
+Optimiser & \texttt{adamw\_torch}; $\beta_1=0.9$, $\beta_2=0.999$, $\epsilon=10^{-8}$; bias correction enabled \\
+Learning rate & peak $2\times10^{-5}$; linear decay; zero warmup steps \\
+Batch size & 8 per device (training), 16 per device (evaluation); accumulation 1 \\
+Weight decay and clipping & 0.01; gradient norm clipped to 1.0 \\
+Precision and hardware & fp16; one Tesla V100-PCIE-16GB \\
+Seeds & 42 for model initialisation, data order and mask generation; data seed 42 \\
+Checkpoint selection & best development score on the primary metric, evaluated after each epoch \\
+Software & PyTorch 2.6.0 (CUDA 12.4), Transformers 5.16.1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Computational cost of the exploratory benchmark: wall-clock training time of the dense run, range of the ratio of sparse to dense training time over the six masks, dense throughput, and the floating-point operation estimate of the Transformers library. This estimate is derived from the parameter count and the number of tokens and therefore does not reflect masking; since the masks are applied to dense attention, the actual cost of attention is also unchanged. The two largest ratios on MNLI (1.28 for the random circulant and 1.42 for the BigBird-style mask) belong to runs whose evaluation was also approximately 40\% slower than that of the other sparse MNLI runs, which indicates contention on a shared machine rather than an effect of the masks. The 63 runs required 89.0 hours of training time in total.}
+\label{tab:compute}
+\small
+\begin{tabular}{lrcrrc}
+\toprule
+Task & Dense (min) & Sparse/dense time & Samples/s & FLOP estimate & Identical across masks \\
+\midrule
+\input{tables/compute.tex}
+\end{tabular}
+\end{table}
+
+\subsection{Application of the mask in the attention computation}
+\label{app:maskimpl}
+
+The implementation audit was run with eager attention in fp16 on the stated RoBERTa-base checkpoint and Tesla V100-PCIE-16GB before any training result was interpreted. With an all-ones mask, logits and loss matched dense attention exactly, and all 201 compared parameter gradients matched exactly (maximum absolute difference 0); blocked attention probabilities were exactly zero in all captured layers and tested masks, with no nonfinite probabilities. For $L=60$ under the circulant mask, changing token 45 left logits exactly unchanged (maximum absolute difference 0), while changing token 20 changed them (maximum absolute difference $1.98\times10^{-4}$). Tensor comparisons passed for all 48 saved sparse masks, including equality across tasks for each mask family; there were no duplicates or audit failures. The test outputs are archived in \texttt{data/implementation\_audit\_fp16.json}. BigBird tensors have shape $12\times128\times128$; the audit verifies those full tensors rather than a head-averaged mask. The recorded audit establishes these behavioral properties; it does not record the numerical sentinel used for blocked logits or the handling of padded-query rows, so we do not specify those implementation details here.
+
+\paragraph{DeBERTa-v3-base.} The mask is passed to the disentangled attention of DeBERTa-v3-base as a per-pair attention mask combined with the padding mask, and the same audit is applied before any run. \pending{Report the four checks for DeBERTa-v3-base (all-ones mask equals dense attention for logits, loss and gradients; zero probability on excluded pairs in all layers; tensor identity of the masks across tasks; the circulant receptive-field test with tokens 20 and 45 of a 60-token input) in one sentence or a table, together with the precision and hardware used.}
+
+% -----------------------------------------------------------------
+\section{Numerical verification of the propositions}
+\label{app:verify}
+
+Every statement in Section~\ref{sec:framework} that concerns the masks used in this study was verified exhaustively with \texttt{scripts/verify\_props.py}. Table~\ref{tab:verify} lists each verification, its scope and the number of cases in which the statement holds. The distance checks for Proposition~\ref{prop:hypercube} compare all-pairs shortest-path distances in $G_L$ with Hamming distances for every pair of positions and every prefix length. The check of Proposition~\ref{prop:disconnect} uses 200 samples from our reference sampler and every $L\le64$ for which the greatest common divisor of the short generators is at least 2.
+
+\begin{table}[H]
+\centering
+\caption{Exhaustive numerical verification of the propositions and corollaries. All statements hold in every case.}
+\label{tab:verify}
+\scriptsize
+\begin{tabular}{llr}
+\toprule
+Statement & Scope & Cases \\
+\midrule
+\input{tables/verify.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Graph statistics across input lengths}
+\label{app:graphL}
+
+Table~\ref{tab:masks} reports reachability at a single input length. Table~\ref{tab:hops} gives, for a range of input lengths $L$, the number of layers after which position 0 can be influenced by every non-padded token; with 12 layers, any entry exceeding 12 implies that part of the input is inaccessible to the classifier (Proposition~\ref{prop:reach}). The entry for the circulant mask increases with $L$ until wrap-around edges appear at $L\ge126$, which explains the value of 22 at $L=128$. The random circulant is disconnected on short inputs; the number of connected components is given in parentheses.
+
+Table~\ref{tab:validdensity} reports the realised density, i.e.\ the fraction of query--key pairs among non-padded tokens retained by each mask, as a function of $L$. The window masks are exactly dense up to $L=17$, and the binary and Gray placements of the hypercube retain the same number of pairs at every length (Proposition~\ref{prop:recursive}).
+
+\begin{table}[H]
+\centering
+\caption{Realised density $\lVert A_L\rVert_0/L^2$ on $L$ non-padded tokens. For BigBird, density is averaged over the 12 saved head masks. The column $L=128$ gives the nominal per-head density.}
+\label{tab:validdensity}
+\scriptsize
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+ & \multicolumn{9}{c}{non-padded tokens $L$} \\
+Mask & 8 & 12 & 17 & 24 & 32 & 48 & 64 & 96 & 128 \\
+\midrule
+\input{tables/valid_density.tex}
+\end{tabular}
+\end{table}
+
+Adjacent-token coverage depends only weakly on $L$. It equals 1 at every $L$ for the dense, local, window-with-dilations, circulant, BigBird-style and Gray-placed hypercube masks; it lies between 0.50 and 0.57 for the binary-placed hypercube (Proposition~\ref{prop:gray}); and it equals 0 for the random circulant used in the benchmark runs.
+
+\begin{table}[H]
+\centering
+\caption{Number of layers required for position 0 to depend on all $L$ non-padded tokens. For BigBird, reachability is computed on the union of the 12 head masks. $\infty$ ($k$): the induced graph has $k$ components, and position 0 does not depend on the entire input at any depth.}
+\label{tab:hops}
+\scriptsize
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+ & \multicolumn{9}{c}{non-padded tokens $L$} \\
+Mask & 8 & 16 & 24 & 32 & 48 & 64 & 96 & 112 & 128 \\
+\midrule
+\input{tables/hops_by_L.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{The random circulant family}
+\label{app:rcfamily}
+
+The random circulant run used the exact generator pairs $\{4,18,25,41,43,44,52,60\}$, recovered from its saved adjacency tensor. Its full-graph spectral gap is 0.454 and its adjacent-token coverage is zero. To assess whether its properties are representative of the family, we separately drew 200 masks from our reference sampler (eight distinct offsets in $\{1,\dots,127\}$, excluding pairs of mutually inverse offsets and offsets of order two).
+
+Only 8.5\% of the samples contain $\pm1$; random circulants therefore rarely connect adjacent tokens. Padding disconnects 64.5\% of the samples at $L=16$, 22\% at $L=32$ and 0.5\% at $L=64$ (Figure~\ref{fig:rcfamily}a), and in almost all of these cases position 0 also fails to depend on the entire input within 12 layers. At the same time, these masks are good expanders: the median spectral gap is 0.47, and 95.5\% of the samples exceed the value of 0.29 attained by the hypercube (Figure~\ref{fig:rcfamily}b). The family thus combines strong expansion with the absence of locality and with limited reachability on short inputs, in contrast to the masks that performed well on the single-sentence tasks.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/random_circulant_family.pdf}
+\caption{Two hundred random circulant masks with eight generator pairs. (a) Fraction of samples for which the padded graph is disconnected and for which position 0 does not depend on every non-padded token within 12 layers; the two curves nearly coincide. (b) Spectral gaps of the full masks, with three structured masks shown for reference.}
+\label{fig:rcfamily}
+\end{figure}
+
+The exact benchmark tensors were decoded and checked against the audit hashes with \texttt{scripts/pilot\_masks.py}. The generator pairs, per-head BigBird summaries, and tensor hashes are in \texttt{data/pilot\_mask\_summary.json}; graph summaries, including the headwise BigBird spectral-gap range, are in \texttt{data/graph\_stats.json}. Tables~\ref{tab:masks}, \ref{tab:hops} and \ref{tab:validdensity}, along with the mask gallery, reachability plot and single-sentence scatter, use the recovered benchmark masks. For BigBird, density and spectral summaries are averaged over heads and reachability uses the union graph, as described in the table captions. The family-level plot in Figure~\ref{fig:rcfamily} remains based on the stated reference sampler and is separate from the analysis of the exact benchmark masks.
+
+% -----------------------------------------------------------------
+\section{Exploratory benchmark: training loss and selected epoch}
+\label{app:loss}
+
+\begin{table}[H]
+\centering
+\caption{Mean training loss over the entire training run, with the epoch of the selected checkpoint in parentheses. Classification losses are cross-entropies in nats; for reference, $\ln2=0.693$ and $\ln3=1.099$. STS-B uses the mean squared error. A loss that remains at the entropy of the label distribution indicates that the model has learned only the class frequencies.}
+\label{tab:loss}
+\setlength{\tabcolsep}{3pt}
+\scriptsize
+\begin{tabular}{lcccccccc}
+\toprule
+Mask & CoLA & SST-2 & MRPC & QQP & STS-B & RTE & QNLI & MNLI \\
+\midrule
+\input{tables/train_loss.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Exploratory benchmark: learning curves}
+\label{app:curves}
+
+Figures~\ref{fig:pilotcurves}--\ref{fig:pilotcurvesd} show, for each task, the training loss, the development loss and the primary development metric of the five-epoch runs under all seven attention conditions. The entropy of the training-label distribution, shown as a horizontal reference, is 0.607 nats for CoLA, 0.686 for SST-2, 0.631 for MRPC, 0.659 for QQP, $\ln2=0.693$ for RTE and QNLI, and $\ln3=1.099$ for MNLI. These single-seed curves are descriptive and do not establish the cause of any failure; they do, however, determine the type of failure.
+
+\paragraph{Degenerate runs.} Twelve of the 13 degenerate five-epoch runs (CoLA: hypercube, random circulant; MRPC: circulant; RTE: hypercube, random circulant; QNLI: circulant, window with dilations; MNLI: local, window with dilations, circulant, hypercube, random circulant) remain at the label entropy from the first logged step to the end of training; on MNLI the five corresponding curves overlap. The exception is the circulant run on QQP, whose training loss decreases early in the first epoch and then rises to the label entropy, where it remains; its F1 score is 0 at every evaluation. The binary-placed hypercube on QQP undergoes a similar episode between approximately epochs 1.1 and 1.8 and recovers.
+
+\paragraph{Late departures and unfinished training.} On QNLI, the random circulant and the binary-placed hypercube leave the plateau during the fourth and fifth epochs; on RTE, the local and window-with-dilations masks leave it after approximately three epochs, and the dense model after almost two. On STS-B, the training loss of the BigBird-style, hypercube, circulant and random circulant runs is still decreasing at the end of training.
+
+\paragraph{Fitting without generalisation.} On MRPC, the training loss of the local, window-with-dilations and BigBird-style runs falls to about 0.25 while their development loss rises from about 0.6 to between 1.0 and 1.4, and their development F1 score does not exceed that of the constant predictor by more than 1.2 points; RTE shows a weaker form of the same pattern. On QNLI, MRPC, RTE and QQP, the development loss of the dense model also increases after the first or second epoch while its development score is stable or increasing, which is usual under a cross-entropy objective and does not affect selection by the primary metric. These patterns are summarised in observation O6.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\linewidth]{data/learning_curves/cola.png}
+\includegraphics[width=0.96\linewidth]{data/learning_curves/mnli.png}
+\caption{Learning curves of the exploratory benchmark for CoLA and MNLI. Within each task, panels show training loss, development loss and the task's primary development metric; all seven attention conditions are plotted. For MNLI, the training-loss and development-loss curves of the five masks other than the dense and BigBird-style masks overlap closely. The horizontal loss reference is the empirical entropy of the training labels (0.607 nats for CoLA and $\ln3=1.099$ for MNLI).}
+\label{fig:pilotcurves}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\linewidth]{data/learning_curves/mrpc.png}
+\includegraphics[width=0.96\linewidth]{data/learning_curves/qnli.png}
+\caption{Learning curves of the exploratory benchmark for MRPC and QNLI. Within each task, panels show training loss, development loss and the primary development metric. The horizontal loss reference is the empirical binary-label entropy.}
+\label{fig:pilotcurvesb}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\linewidth]{data/learning_curves/qqp.png}
+\includegraphics[width=0.96\linewidth]{data/learning_curves/rte.png}
+\caption{Learning curves of the exploratory benchmark for QQP and RTE. Within each task, panels show training loss, development loss and the primary development metric. The horizontal loss reference is the empirical binary-label entropy.}
+\label{fig:pilotcurvesc}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\linewidth]{data/learning_curves/sst2.png}
+\includegraphics[width=0.96\linewidth]{data/learning_curves/stsb.png}
+\caption{Learning curves of the exploratory benchmark for SST-2 and STS-B. Within each task, panels show training loss, development loss and the primary development metric. The horizontal loss reference is the empirical binary-label entropy for SST-2; STS-B is regression.}
+\label{fig:pilotcurvesd}
+\end{figure}
+
+% -----------------------------------------------------------------
+\section{Exploratory benchmark: MNLI with three and five epochs}
+\label{app:mnli}
+
+\begin{table}[H]
+\centering
+\caption{MNLI-matched accuracy (\%) and mean training loss under the three-epoch and five-epoch schedules. Every Cayley mask and the local window yield degenerate predictions under both schedules. The predicted class differs between the schedules (31.82\% is the proportion of class 1 and 35.45\% that of class 0), which confirms that these runs produce constant predictions rather than weak classifiers. The difference of one point between the two BigBird-style runs gives an indication of the variation between runs.}
+\label{tab:mnli}
+\small
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{3 epochs} & \multicolumn{2}{c}{5 epochs} \\
+Mask & Acc & Train loss & Acc & Train loss \\
+\midrule
+\input{tables/mnli_epochs.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Exploratory benchmark: headroom recovered}
+\label{app:headroom}
+
+\begin{table}[H]
+\centering
+\caption{Headroom recovered on the primary metric (the values underlying Figure~\ref{fig:headroom}). Values slightly above 1 indicate that the sparse run marginally exceeded the dense run.}
+\small
+\begin{tabular}{lcccccccc}
+\toprule
+Mask & CoLA & SST-2 & MRPC & QQP & STS-B & RTE & QNLI & MNLI \\
+\midrule
+\input{tables/headroom.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Input-length statistics and realised density}
+\label{app:lengths}
+
+The table reports the diagnostics computed with the RoBERTa tokenizer on each GLUE development set. Realised density is computed over valid query--key pairs and, for BigBird, averaged over its 12 head-specific masks. The fraction of examples whose second segment starts after position 36 is a descriptive lower-bound indicator for examples with no access to that segment under the 12-layer circulant; it does not measure whether the task-relevant content within the second segment is accessible. The per-task values are stored in \texttt{data/length\_stats.json}; \texttt{scripts/diagnostics.py lengths} loads the exact saved benchmark masks, including the head-specific BigBird tensor. The Gray-placed hypercube retains exactly as many query--key pairs as the binary placement on every task, as required by Proposition~\ref{prop:recursive}; the same holds for the three Hamiltonian-path placements of Experiment~2, whose realised densities therefore equal those of the binary placement in Table~\ref{tab:pilotdensity}.
+
+\begin{table}[H]
+\centering
+\caption{Token lengths of the development sets under the RoBERTa tokenizer, including special tokens.}
+\label{tab:lengths}
+\scriptsize
+\begin{tabular}{lccccccc}
+\toprule
+Task & Mean $L$ & Median $L$ & 90th pct. & $L>37$ & Truncated & Median start of segment 2 & Segment 2 starts after 36 \\
+\midrule
+CoLA & 11.62 & 10 & 17 & 0.0\% & 0.0\% & n/a & n/a \\
+SST-2 & 26.01 & 25 & 40 & 15.3\% & 0.0\% & n/a & n/a \\
+MRPC & 54.25 & 54 & 71 & 90.4\% & 0.0\% & 28 & 13.7\% \\
+QQP & 31.05 & 28 & 47 & 21.8\% & 0.01\% & 15 & 1.6\% \\
+STS-B & 32.28 & 29 & 51 & 32.4\% & 0.0\% & 15 & 1.7\% \\
+RTE & 65.83 & 54 & 128 & 85.6\% & 12.6\% & 41 & 59.9\% \\
+QNLI & 51.98 & 49 & 76 & 78.4\% & 0.5\% & 15 & 0.04\% \\
+MNLI-m & 39.85 & 37 & 63 & 48.2\% & 0.3\% & 23 & 21.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Realised attention density $\rho_{\mathrm{valid}}$ on each development set, computed as the retained query--key pairs divided by the total valid query--key pairs. BigBird values average over the 12 head-specific masks.}
+\label{tab:pilotdensity}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Task & Dense & Local & Window + dil. & Circulant & Hypercube & Random circ. & BigBird \\
+\midrule
+CoLA & 1.000 & 0.969 & 0.969 & 0.445 & 0.327 & 0.178 & 0.609 \\
+SST-2 & 1.000 & 0.753 & 0.759 & 0.217 & 0.184 & 0.127 & 0.334 \\
+MRPC & 1.000 & 0.491 & 0.506 & 0.119 & 0.115 & 0.123 & 0.210 \\
+QQP & 1.000 & 0.678 & 0.686 & 0.185 & 0.162 & 0.126 & 0.294 \\
+STS-B & 1.000 & 0.646 & 0.655 & 0.174 & 0.154 & 0.124 & 0.280 \\
+RTE & 1.000 & 0.354 & 0.381 & 0.084 & 0.086 & 0.129 & 0.163 \\
+QNLI & 1.000 & 0.474 & 0.490 & 0.116 & 0.111 & 0.125 & 0.205 \\
+MNLI-m & 1.000 & 0.544 & 0.558 & 0.139 & 0.129 & 0.125 & 0.235 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Input lengths and realised density under the DeBERTa-v3 tokenizer}
+\label{app:lengths-deberta}
+
+The DeBERTa-v3 tokenizer segments the development sets differently, so that the realised density of each mask differs between the two models. Tables~\ref{tab:lengthsdeb} and~\ref{tab:densitydeb} report the statistics of Tables~\ref{tab:lengths} and~\ref{tab:pilotdensity} for DeBERTa-v3-base, for the masks used in the controlled experiments; all hypercube placements have the realised density of the binary placement (Proposition~\ref{prop:recursive}).
+
+\begin{table}[H]
+\centering
+\caption{Token lengths of the development sets under the DeBERTa-v3 tokenizer, as in Table~\ref{tab:lengths}.}
+\label{tab:lengthsdeb}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\resulttable{tables/lengths_deberta.tex}{run scripts/diagnostics.py lengths with the DeBERTa-v3 tokenizer, then scripts/length\_tables.py data/length\_stats\_deberta.json -{}-suffix \_deberta}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Realised density $\rho_{\mathrm{valid}}$ on the development sets under the DeBERTa-v3 tokenizer.}
+\label{tab:densitydeb}
+\scriptsize
+\resulttable{tables/valid_density_tasks_deberta.tex}{as for Table~\ref{tab:lengthsdeb}}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Mask files of the exploratory benchmark}
+\label{app:hashes}
+
+Masks were generated once per task. The audit compared all 48 saved sparse tensors and found that each mask family is tensor-identical across the eight tasks. The exact saved tensors are retained under \texttt{data/masks/}; their canonical tensor hashes, shapes and recovered random-circulant generators are recorded in \texttt{data/pilot\_mask\_summary.json}. BigBird has 12 distinct head-specific masks of shape $128\times128$, each with density 0.1228; its mean symmetrized per-head spectral gap is 0.440 (range 0.415--0.474; Appendix~\ref{app:graphL}). Its reach and hop counts use the union of the head masks. See \texttt{data/masks/README.md} for loading instructions. The hashes below are hashes of task-specific serialized mask files; they differ between tasks even though the decoded adjacency tensors are identical. The audit's canonical tensor hashes are also recorded in \texttt{data/implementation\_audit\_fp16.json}.
+
+\begin{table}[H]
+\centering
+\caption{First eight hexadecimal digits of the SHA-256 hash of each task-specific serialized mask file. The dense model has no mask file; tensor equality across tasks was checked after decoding.}
+\scriptsize
+\begin{tabular}{lcccccc}
+\toprule
+Task & Local & Window + dil. & Circulant & Hypercube & Random circ. & BigBird \\
+\midrule
+\input{tables/sha.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Placements of the hypercube}
+\label{app:placements}
+
+\paragraph{Construction.} A recursive random Hamiltonian path of $Q_d$ starting at vertex $s$ is generated by \texttt{random\_hamiltonian\_path} in \texttt{scripts/masks.py} as follows: a coordinate $c$ is chosen uniformly at random; the $(d-1)$-dimensional subcube containing $s$ is traversed by a recursive random Hamiltonian path starting at $s$; coordinate $c$ is crossed at the final vertex of this path; and the complementary subcube is traversed by an independent recursive random path starting from the resulting vertex. Each such path is recursive in the sense of Proposition~\ref{prop:recursive} and defines a placement by mapping position $i$ to the $i$-th vertex of the path. By Lemma~\ref{lem:aut}, placements related by an automorphism of $Q_7$ yield identical masks; every set of placements is therefore checked for duplicates at the level of Boolean tensors. Forty random paths together with the binary and Gray placements yielded 42 distinct masks. Uniformly random permutations are not used as controls, since under padding they disconnect the deployed graph and alter the realised density (last row of Table~\ref{tab:placements}).
+
+\begin{table}[H]
+\centering
+\caption{Placements of $Q_7$: adjacent-token coverage at $L=32$; realised density at three input lengths; number of edges at sequence offsets 2, 3 and 5 on the full mask; mean graph distance from position 0 to the other positions at $L=122$; number of layers required for position 0 to depend on a 24-token input; and the maximum of this number over $L$. The first five placements are recursive; their deployed graphs are isomorphic as unrooted graphs, with identical realised density, at every $L$ (Proposition~\ref{prop:recursive}), while their readout distances differ.}
+\label{tab:placements}
+\scriptsize
+\begin{tabular}{lcccccccccc}
+\toprule
+Placement & Adj.\ cov. & $\rho_{24}$ & $\rho_{48}$ & $\rho_{100}$ & off.\ 2 & off.\ 3 & off.\ 5 & mean dist & hops@24 & max hops \\
+\midrule
+\input{tables/placements.tex}
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Analysis plan of the controlled study}
+\label{app:plan}
+
+The specifications below were fixed before any run of the controlled study. Each states the question, the design, the type of comparison, the primary outcome and the interpretation of each possible outcome; Table~\ref{tab:decision} summarises them.
+
+\begin{expcard}{Experiment 1 --- Recovery under the same final mask relative to a strong baseline}
+\cardfield{Role} Primary experiment; run first. Condition (P) also serves as the confirmation of observations O2 and O3 under independent checkpoint selection.
+\cardfield{Question} (1-i) Are the degenerate outcomes of the benchmark reproduced under the original protocol with independent checkpoint selection and several seeds? (1-ii) Does a standard improvement to the protocol, or a longer training budget, recover them? (1-iii) Does a gradual transition to the mask provide a benefit \emph{beyond} a strong hard-mask baseline?
+\cardfield{Encoders} RoBERTa-base and DeBERTa-v3-base, analysed separately with identical procedures.\cardfield{Configurations} For each encoder: (a) the binary-placed hypercube on CoLA, with 20 seeds (observation O2); (b) the window with dilations on QNLI, with 5 seeds (observation O3), with the local window on QNLI under (P) as the reference of O3; (c) the local window on RTE, with 20 seeds (observation O6, late departure from the plateau). The dense model on each task serves as control.
+\cardfield{Conditions} All conditions use the same final hard mask, which is also used for evaluation.
+(P) original protocol with the hard mask;
+(S) strong hard-mask protocol: identical to (P), with the same number of steps, except for a linear learning-rate warmup over the first 10\% of the steps; since (P) already uses AdamW with bias correction, gradient clipping and linear decay but no warmup (Table~\ref{tab:hparams}), warmup is the only one of the measures recommended by \citet{mosbach2021stability} that (P) lacks; a separate condition (S$^{+}$) uses three times as many steps in order to isolate the effect of training length;
+(G) gradual transition: a logit bias of $-\beta(t)$ on removed pairs, with $\beta$ increasing linearly over the first half of training to a value at which $f(\beta)>0.999$ for every head (Proposition~\ref{prop:soft}), padding masked throughout, and \emph{optimiser settings, training tokens, data order and checkpoint selection identical to (S)};
+Dense controls: the dense model under (P), (S) and (S$^{+}$). For each configuration with a degenerate outcome under (P), one seed is repeated in single precision (fp32); agreement of the outcomes excludes half-precision arithmetic as its cause.
+\cardfield{Comparison type} Budget-controlled with respect to training tokens: (G) and (S) are matched exactly; (S$^{+}$) uses three times as many tokens and is compared with the dense model under (S$^{+}$). All compute is reported.
+\cardfield{Primary outcome} Probability of degeneracy (20 seeds on CoLA and RTE, 5 on QNLI) and mean score over all seeds; recovery from degeneracy and performance recovery as in Definition~\ref{def:rescue}. Secondary outcome: the \emph{escape step}, the first step at which the training loss, smoothed by a rolling median over 0.05 epochs, falls below the entropy of the training-label distribution minus 0.05 nats; runs that never meet this criterion are right-censored at the end of training (observation O6).
+\cardfield{Decision for (1-i)} The difference in the probability of degeneracy between the sparse and the dense model under (P) is classified as in Appendix~\ref{app:stats}. If it is not supported, the observation is reported as not reproduced (or as inconclusive), the configuration is retained, and (1-ii) and (1-iii) are evaluated on the mean score.
+\cardpos{} (1-i) The degenerate outcome is not an artefact of a single seed or of selection on the evaluation set. (1-ii) If (S) or (S$^{+}$) recovers a degenerate outcome, that outcome was a property of the protocol or of the budget. It is \emph{amplified by sparsification} only if the improvement over (P) is larger for the sparse model than for the dense model (difference-in-differences with an interval). If (S$^{+}$) recovers outcomes that (S) does not, and the escape steps under (S) are censored, the degenerate outcome reflects the training budget rather than an inability to learn under the mask. (1-iii) If (G) outperforms (S) at matched training tokens, the tested gradual adaptation trajectory outperforms immediate hard masking for that mask; this does not separately identify the responsible mechanism, such as the smoothness of the transition, early access to the edges that are later removed, or another property of the training dynamics.
+\cardneg{} If no condition recovers a degenerate outcome, the conclusion is bounded: the mask fails \emph{under the tested protocols and budget}, which does not establish that no adaptation procedure exists.
+\cardmixed{} Recovery from degeneracy without performance recovery is reported as such: the mask no longer produces degenerate predictors but remains below the dense model by the measured margin.
+\cardcannot{} The reason why adaptation to a mask is difficult; whether a remaining gap is intrinsic to the mask or a consequence of dense pretraining; and whether the results extend to MNLI and to continued pretraining under the mask.
+\end{expcard}
+
+\begin{expcard}{Experiment 2 --- Placement at a fixed graph and a fixed realised budget}
+\cardfield{Role} Primary experiment.
+\cardfield{Question} Do distinct placements of $Q_7$, with an identical abstract graph and identical realised density at every input length, lead to different behaviour of a fixed pretrained model, (2-i) before any training, as measured by its masked-language-model loss, and (2-ii) after fine-tuning?
+\cardfield{Placements} Binary; Gray (the Hypercube Transformer of \citealp{wang2022dense}); three recursive random Hamiltonian paths (Appendix~\ref{app:placements}). All five placements are recursive, so that Proposition~\ref{prop:recursive} guarantees isomorphic unrooted deployed graphs, and hence an equal realised budget, at every $L$; the last four additionally connect every pair of adjacent tokens but differ at offsets 3, 5 and beyond. Masks are checked for duplicates as tensors (Lemma~\ref{lem:aut}) and audited before use. Uniformly random permutations are not used, since under padding they disconnect the deployed graph and do not match the budget.
+\cardfield{Design} (2-i) Loss of each pretrained model on its pretraining objective, without training, on 128-token windows of held-out text (the validation set of WikiText-103) under each placement and under dense attention: the masked-language-model loss of RoBERTa-base, with 15\% of the tokens masked by the standard procedure, and the replaced-token-detection loss of DeBERTa-v3-base, with 15\% of the tokens replaced by unigram samples; the masked or replaced positions are identical for all placements, and in this setting all placements are fully occupied and isomorphic. If the detection head of DeBERTa-v3-base does not detect the replacements well above chance under dense attention, (2-i) is reported for RoBERTa-base only. (2-ii) Fine-tuning of each encoder under (P) with all five placements on CoLA (20 seeds), SST-2 (5 seeds), MRPC, STS-B and RTE (10 seeds each) and QNLI (5 seeds), and with the binary and the Gray placement on QQP (3 seeds); the binary placement on CoLA and the dense runs on CoLA, QNLI and RTE are shared with Experiment~1.
+\cardfield{Comparison type} Budget-controlled (Proposition~\ref{prop:recursive}), with identical weights, tokens, position identifiers and protocol.
+\cardfield{Primary outcome and inference} (2-i) Pretraining-objective loss with intervals obtained by resampling text windows, paired across placements. (2-ii) Mean score over all seeds and probability of degeneracy (classification tasks). Inference is based on two prespecified contrasts: (a) the signed difference between the Gray and binary placements, for each of the seven tasks, and (b) an omnibus test of equality among the four placements that connect all adjacent tokens (Gray and the three Hamiltonian paths), computed by permutation of placement labels within seeds in a model with task and placement effects. The primary analysis pools the six tasks that include all placements in this model, on scores standardised by the within-placement standard deviation of each task; task-specific contrasts are reported with Holm correction over the seven tasks. The range across placements is reported as a descriptive summary only, since it is positively biased when the true placement means are equal.
+\cardpos{} (2-i) If the pretraining-objective loss differs between placements, the pretrained computation itself is sensitive to placement at a fixed graph and budget, before any adaptation. (2-ii) If contrast (a) or (b) provides convincing evidence of a difference, \emph{the unrooted deployed graph and the realised budget do not determine the behaviour of a fixed pretrained transformer under sparse attention}, since these coincide across recursive placements at every input length (Proposition~\ref{prop:recursive}). If (b) is supported, adjacent-token coverage alone does not account for the effect. Agreement between (2-i) and (2-ii) in the ordering of the placements supports compatibility with the pretrained computation as a source of the differences.
+\cardneg{} If the contrasts are practically absent (intervals within the margin), placement does not explain the degenerate outcome of the binary-placed hypercube in this setting, and observation O2 is attributed to the factors examined in Experiment~1. If they are inconclusive, the result is reported as such, together with the range of placement effects compatible with the data.
+\cardcannot{} That a difference is caused specifically by incompatibility with pretraining, since placement also changes graph distances from the readout and the sequence functions that are easily computed (see the $Q_3$ example in Section~\ref{sec:compat}).
+\cardfield{Agreement between the encoders} A finding is stated for both encoders if it is supported in each; if it is supported in one encoder and practically absent in the other, the difference is reported, without attribution to a specific architectural component.
+\end{expcard}
+
+\begin{table}[H]
+\centering
+\caption{Interpretation of the experimental outcomes. The specification of each experiment states the corresponding decision rules in full.}
+\label{tab:decision}
+\scriptsize
+\begin{tabular}{p{2.6cm}p{5.5cm}p{5.5cm}}
+\toprule
+Experiment & Hypothesis supported & Hypothesis not supported \\
+\midrule
+1, condition (P): confirmation & The degenerate outcomes of the benchmark are reproduced under independent checkpoint selection and several seeds. & The observation is reported as not reproduced (or as inconclusive); the comparison of protocols is made on the mean score. \\
+1, adaptation (primary) & The degenerate outcomes depend on the adaptation protocol or the training budget under the same final mask; evaluations of sparse attention are protocol-dependent. & Under the tested protocols and budget, the degenerate outcomes persist; no claim is made that no protocol succeeds. \\
+2, pretraining-objective loss & The pretrained computation is sensitive to placement at a fixed graph and budget, before any training. & No placement sensitivity of the pretrained model is detected at the resolution of the evaluation. \\
+2, fine-tuning (primary) & The unrooted deployed graph and the realised budget do not determine the behaviour of a fixed pretrained model. & Placement effects are practically absent, or the result is inconclusive and reported with the compatible range of effects. \\
+Both, encoders & A finding supported in both encoders is stated for both. & A finding supported in one encoder only is stated for that encoder, and the difference is not attributed to a single component. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Statistical procedures}
+\label{app:stats}
+
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+\item \textbf{Primary outcome.} The primary metric of each task on the GLUE development set, with checkpoints selected on a held-out 10\% of the training data. The primary summary statistic is the mean over all seeds, including degenerate runs; means over non-degenerate runs are reported as supplementary information.
+\item \textbf{Margins and smallest effects of interest.} Fixed before any run: 1.0 point of accuracy or F1, and 0.01 for MCC and Pearson correlation; for probabilities of degeneracy, 10 percentage points; for the pretraining-objective losses, 0.01 nats.
+\item \textbf{Encoders.} Every analysis is performed separately for RoBERTa-base and DeBERTa-v3-base; results are compared but not pooled, and multiplicity corrections are applied within each encoder.
+\item \textbf{Classification of outcomes.} For a hypothesis that predicts an effect, the outcome is \emph{supported} if the 95\% interval excludes zero in the predicted direction, \emph{practically absent} if the interval lies within the margin of the smallest effect of interest, and \emph{inconclusive} otherwise.
+\item \textbf{Intervals.} 95\% percentile bootstrap intervals (10{,}000 resamples) for differences, with seeds and evaluation examples resampled jointly and pairing preserved: runs that share a seed and data order are resampled together, as are predictions on the same example. For the pretraining-objective losses, text windows are resampled, paired across placements.
+\item \textbf{Probability of degeneracy.} A run is degenerate if it predicts a single class on the development set; Wilson intervals are reported for each condition. Comparisons between conditions target the \emph{difference} in probabilities, with seeds paired across conditions (identical classifier initialisation and data order), using a score interval for the paired difference and an exact McNemar test; non-overlap of marginal intervals is not used as a test. With $k=0$ degenerate runs among $n$, the upper limit of the 95\% Wilson interval is $z^2/(n+z^2)$ with $z=1.96$ (43\% for $n=5$ and 16\% for $n=20$); a configuration is described as stable only if this upper limit is below 10\%.
+\item \textbf{Time to escape} (Experiment~1). Escape steps are right-censored at the end of training. We report Kaplan--Meier estimates of the probability of having left the plateau as a function of the training step, expressed as a fraction of the steps of (P), and compare conditions with a log-rank test stratified by seed.
+\item \textbf{Difference-in-differences} for amplification by sparsification (Experiment~1): the improvement of the sparse model minus the improvement of the dense model under the same change of protocol, with a paired bootstrap interval.
+\item \textbf{Placement contrasts} (Experiment~2): the signed contrast Gray $-$ binary for each task, with a bootstrap interval and a two-sided bootstrap $p$-value from the same joint resampling of seeds and examples, Holm-adjusted over the seven tasks (a sign-flip test over seeds alone cannot fall below $p=0.25$ with three seeds or $p=0.0625$ with five); pooled over the six tasks that include all placements, the same contrast on scores standardised by the pooled within-placement standard deviation of each task. Equality among the four placements with full adjacent-token coverage is tested by permuting placement labels within each task and seed (10{,}000 permutations), with the sum of squared deviations of the placement means, after removal of task means, as statistic. For the pretraining-objective losses, the same statistic is computed with labels permuted within text windows. The range across placements is descriptive only.
+\item \textbf{Confirmatory and exploratory analyses.} The decision rules in the specifications of Experiments~1 and~2 are confirmatory; the perturbation diagnostics and all other analyses are exploratory.
+\end{itemize}
+
+\paragraph{Software.} All analyses are performed by \texttt{scripts/analyse\_exp1.py}, \texttt{scripts/analyse\_exp2.py} and \texttt{scripts/analyse\_extra.py}, which read the per-example predictions and training logs of every run and write the tables and figures of Sections~\ref{sec:res1} and~\ref{sec:res2} and of Appendices~\ref{app:addresults} and~\ref{app:compute}.
+
+% -----------------------------------------------------------------
+\section{Additional results of the controlled study}
+\label{app:addresults}
+
+\begin{table}[H]
+\centering
+\caption{Experiment 2: mean score over all seeds of each placement on each task for each encoder, with the number of degenerate seeds and the number of seeds in parentheses (STS-B: number of seeds). The dense model is shown for reference; 95\% intervals are given in \texttt{data/exp2\_summary.json}.}
+\label{tab:exp2scores}
+\scriptsize
+\resulttable{tables/exp2_scores.tex}{run scripts/analyse\_exp2.py}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Experiment 1: repetition in single precision (fp32) of one seed of each configuration with a degenerate outcome under (P), compared with the same seed in mixed precision (fp16).}
+\label{tab:fp32}
+\scriptsize
+\resulttable{tables/exp1_fp32.tex}{run scripts/analyse\_exp1.py}
+\end{table}
+
+\subsection{Scores stratified by input length}
+\label{app:strata}
+
+\begin{table}[H]
+\centering
+\caption{Mean score over all seeds under the original protocol (P), stratified by the number of non-padded tokens $L$ under the tokenizer of each encoder. Strata with fewer than 20 examples are omitted. The window masks are exactly dense for $L\le17$.}
+\label{tab:strata}
+\scriptsize
+\resulttable{tables/length_strata.tex}{run scripts/analyse\_extra.py}
+\end{table}
+
+% -----------------------------------------------------------------
+\section{Computational cost of the controlled study}
+\label{app:compute}
+
+All runs were conducted on one NVIDIA Tesla V100-PCIE-16GB GPU per run. Table~\ref{tab:computecontrolled} reports the measured training time; the pretraining-objective evaluation and the perturbation diagnostics require forward passes only (less than four GPU-hours in total).
+
+\begin{table}[H]
+\centering
+\caption{Measured training time of the controlled study.}
+\label{tab:computecontrolled}
+\small
+\resulttable{tables/compute_controlled.tex}{run scripts/analyse\_extra.py}
+\end{table}
+
+\end{document}
