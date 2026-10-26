@@ -1,0 +1,145 @@
+{
+  "model": "/home/22cs30008/offline/models/roberta-base",
+  "mask_dir": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks",
+  "pilot_results": "/scratch/scratch26/22cs30008/res/results/benchmark_all.jsonl",
+  "device": "cuda",
+  "gpu": "Tesla V100-PCIE-16GB",
+  "precision": "fp16",
+  "torch_version": "2.6.0+cu124",
+  "transformers_version": "5.16.1",
+  "checks": {
+    "pilot_masks_and_cross_task_equality": {
+      "passed": true,
+      "checked_mask_files": 48,
+      "reference_paths": {
+        "local": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_local.pt",
+        "hypercube": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_hypercube.pt",
+        "circulant": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_circulant.pt",
+        "window_dilations": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_window_dilations.pt",
+        "random_circulant": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_random_circulant.pt",
+        "bigbird": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_bigbird.pt"
+      },
+      "tensor_sha256": {
+        "local": "859c31a8dc22eeda646c8080a62ec4ac9c4d2c096914c5d0f34554d9a521540e",
+        "hypercube": "a8b3acbb6f85c2952d5118a68cf4fcf73af0e47aafb481ac38753fe8481d7d9e",
+        "circulant": "5d0cb9d1f7a312d18dee6e4243c291726ef6ff090d6bbfd4debb0449a83802b4",
+        "window_dilations": "ac2cd09714162db1cd14bb0373926962a039e8aed597bfb06e8a8e36eace2fe2",
+        "random_circulant": "d1f78fe81e1229097e5a8a6632e1096b7557f52a194871cfd513200eabb0785c",
+        "bigbird": "9a23072c25f89ccbfb252c044bef44c4c8772a3610461ff2318bef3ad4919a38"
+      },
+      "duplicates": [],
+      "failures": []
+    },
+    "dense_equals_all_ones": {
+      "passed": true,
+      "logits_exact": true,
+      "loss_exact": true,
+      "max_abs_logit_difference": 0.0,
+      "max_abs_loss_difference": 0.0,
+      "gradient_parameters_compared": 201,
+      "parameters_without_gradient": [],
+      "mismatched_gradient_count": 0,
+      "first_mismatched_gradients": [],
+      "max_abs_gradient_difference": 0.0
+    },
+    "blocked_probabilities": {
+      "passed": true,
+      "cases": {
+        "all_ones": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 3.5762786865234375e-07
+        },
+        "local": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
+        },
+        "hypercube": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 3.5762786865234375e-07
+        },
+        "circulant": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
+        },
+        "window_dilations": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 3.5762786865234375e-07
+        },
+        "random_circulant": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
+        },
+        "bigbird": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.980232238769531e-07
+        }
+      },
+      "missing_mask_types": []
+    },
+    "circulant_60_tokens": {
+      "passed": true,
+      "logits_finite": true,
+      "reachable_positions_after_12_layers": 37,
+      "position_20_reachable": true,
+      "position_45_reachable": false,
+      "position_45_logits_exact": true,
+      "position_45_max_abs_logit_difference": 0.0,
+      "position_20_logits_changed": true,
+      "position_20_max_abs_logit_difference": 0.0001983642578125
+    }
+  },
+  "model_config": {
+    "num_hidden_layers": 12,
+    "num_attention_heads": 12,
+    "hidden_size": 768,
+    "intermediate_size": 3072,
+    "num_labels": 2,
+    "attention_implementation": "eager",
+    "all_ones_test_lengths": [
+      60,
+      32
+    ],
+    "probability_test_lengths": [
+      128,
+      32
+    ],
+    "probe_token_ids": {
+      "base": 100,
+      "position_45_replacement": 200,
+      "position_20_replacements": [
+        200,
+        300,
+        400,
+        500,
+        600,
+        700,
+        800,
+        900,
+        1000,
+        1100
+      ]
+    }
+  },
+  "passed": true
+}

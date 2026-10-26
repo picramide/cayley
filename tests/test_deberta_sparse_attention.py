@@ -35,7 +35,7 @@ class DebertaMaskTests(unittest.TestCase):
         self.assertEqual(pair[1, 3:].count_nonzero().item(), 0)
         self.assertEqual(pair[1, :, 3:].count_nonzero().item(), 0)
 
-    def test_saved_mask_requires_identical_heads(self):
+    def test_saved_mask_preserves_head_patterns(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "mask.pt"
             mask = torch.eye(8, dtype=torch.bool).expand(4, -1, -1).clone()
@@ -43,8 +43,21 @@ class DebertaMaskTests(unittest.TestCase):
             self.assertTrue(torch.equal(load_mask(path), mask[0]))
             mask[1, 0, 1] = True
             torch.save(mask, path)
-            with self.assertRaises(ValueError):
-                load_mask(path)
+            self.assertTrue(torch.equal(load_mask(path), mask))
+
+    def test_head_specific_mask(self):
+        model = CayleyDebertaV2ForSequenceClassification(self.config).eval()
+        mask = torch.eye(8, dtype=torch.bool).expand(4, -1, -1).clone()
+        mask[1, 0, 1] = True
+        model.set_structural_mask(mask)
+        ids = torch.tensor([[1, 5, 2, 0]])
+        padding = ids.ne(0).long()
+        allowed = pair_attention_mask(padding, mask)
+        self.assertEqual(allowed.shape, (1, 4, 4, 4))
+        with torch.no_grad():
+            attentions = model(ids, attention_mask=padding, output_attentions=True).attentions
+        for probabilities in attentions:
+            self.assertEqual(probabilities.masked_select(~allowed).count_nonzero().item(), 0)
 
     def test_classifier_uses_position_zero(self):
         model = CayleyDebertaV2ForSequenceClassification(self.config).eval()

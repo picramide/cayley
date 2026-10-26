@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument("--model", type=Path, required=True, help="Saved RoBERTa-base classification model")
     parser.add_argument("--mask-dir", type=Path, required=True, help="Pilot benchmark_all/masks directory")
     parser.add_argument("--pilot-results", type=Path, required=True, help="Frozen pilot JSONL (one row per task/mask)")
-    parser.add_argument("--report", type=Path, required=True, help="Where to write the Appendix B.1 JSON report")
+    parser.add_argument("--report", type=Path, help="Where to write the Appendix B.1 JSON report")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp32")
     args = parser.parse_args()
@@ -40,6 +40,8 @@ def parse_args():
         parser.error("CUDA was requested but is unavailable")
     if args.precision == "fp16" and args.device != "cuda":
         parser.error("FP16 audit requires CUDA")
+    if args.report is None:
+        args.report = Path(__file__).resolve().parent.parent / "data" / f"implementation_audit_{args.precision}.json"
     return args
 
 

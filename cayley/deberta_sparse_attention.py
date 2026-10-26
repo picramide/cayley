@@ -9,10 +9,9 @@ def load_mask(path):
     if not isinstance(mask, torch.Tensor) or mask.dtype != torch.bool:
         raise ValueError("Expected a Boolean mask tensor")
     if mask.ndim == 3:
-        if not torch.equal(mask, mask[:1].expand_as(mask)):
-            raise ValueError("DeBERTa's pairwise mask requires the same pattern on every head")
-        mask = mask[0]
-    if mask.ndim != 2 or mask.shape[0] != mask.shape[1] or not mask.diagonal().all():
+        if torch.equal(mask, mask[:1].expand_as(mask)):
+            mask = mask[0]
+    if mask.ndim not in (2, 3) or mask.shape[-2] != mask.shape[-1] or not mask.diagonal(dim1=-2, dim2=-1).all():
         raise ValueError("Expected a square mask with self-loops")
     return mask
 
@@ -21,17 +20,20 @@ def pair_attention_mask(padding, mask):
     if padding.ndim != 2:
         raise ValueError("Expected a [batch, length] padding mask")
     length = padding.shape[1]
-    if mask.dtype != torch.bool or mask.ndim != 2 or mask.shape[0] < length or mask.shape[1] < length:
-        raise ValueError("Expected a Boolean 2D mask covering the input")
+    if mask.dtype != torch.bool or mask.ndim not in (2, 3) or mask.shape[-2] < length or mask.shape[-1] < length:
+        raise ValueError("Expected a Boolean mask covering the input")
     valid = padding.bool()
-    return mask[:length, :length].to(padding.device) & valid[:, :, None] & valid[:, None, :]
+    if mask.ndim == 2:
+        return mask[:length, :length].to(padding.device) & valid[:, :, None] & valid[:, None, :]
+    return mask[:, :length, :length].to(padding.device) & valid[:, None, :, None] & valid[:, None, None, :]
 
 
 def _embedding_mask(_module, args, kwargs):
     mask = kwargs.get("mask")
-    if mask is not None and mask.ndim == 3:
+    if mask is not None and mask.ndim in (3, 4):
         kwargs = dict(kwargs)
-        kwargs["mask"] = mask.diagonal(dim1=-2, dim2=-1)
+        diagonal = mask.diagonal(dim1=-2, dim2=-1)
+        kwargs["mask"] = diagonal if mask.ndim == 3 else diagonal.any(dim=1)
     return args, kwargs
 
 
@@ -58,9 +60,11 @@ class CayleyDebertaV2ForSequenceClassification(DebertaV2ForSequenceClassificatio
 
     def set_structural_mask(self, mask):
         if mask is not None:
-            if mask.dtype != torch.bool or mask.ndim != 2 or mask.shape[0] != mask.shape[1]:
+            if mask.dtype != torch.bool or mask.ndim not in (2, 3) or mask.shape[-2] != mask.shape[-1]:
                 raise ValueError("Expected a square Boolean mask")
-            if not mask.diagonal().all():
+            if mask.ndim == 3 and mask.shape[0] != self.config.num_attention_heads:
+                raise ValueError("Wrong number of attention heads")
+            if not mask.diagonal(dim1=-2, dim2=-1).all():
                 raise ValueError("Expected self-loops at every position")
         self.structural_mask = mask.to(next(self.parameters()).device) if mask is not None else None
 
