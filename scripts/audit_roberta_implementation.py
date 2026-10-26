@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """No-training RoBERTa-base attention audit for Appendix B.1.
 
-Checks the saved pilot masks, dense/all-ones equivalence, blocked attention
+Checks the saved pilot and follow-up masks, dense/all-ones equivalence, blocked attention
 probabilities, and the 60-token circulant reachability prediction. A frozen
 pilot JSONL is required so replaced mask files cannot silently pass the audit.
 """
@@ -24,13 +24,15 @@ from cayley import roberta_sparse_attention as sparse
 
 TASKS = ("cola", "sst2", "stsb", "rte", "mrpc", "qqp", "mnli", "qnli")
 MASKS = ("local", "hypercube", "circulant", "window_dilations", "random_circulant", "bigbird")
+NEW_MASKS = ("hypercube_gray", "hypercube_hampath0", "hypercube_hampath1", "hypercube_hampath2")
 LENGTH = 128
+MASK_DIR = Path(__file__).resolve().parent.parent / "masks"
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True, help="Saved RoBERTa-base classification model")
-    parser.add_argument("--mask-dir", type=Path, required=True, help="Pilot benchmark_all/masks directory")
+    parser.add_argument("--mask-dir", type=Path, default=MASK_DIR, help="Saved mask directory")
     parser.add_argument("--pilot-results", type=Path, required=True, help="Frozen pilot JSONL (one row per task/mask)")
     parser.add_argument("--report", type=Path, help="Where to write the Appendix B.1 JSON report")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda" if torch.cuda.is_available() else "cpu")
@@ -119,6 +121,61 @@ def check_pilot_masks(args):
         "duplicates": duplicates,
         "failures": failures,
     }, reference_paths
+
+
+def check_new_masks(args, pilot_hypercube_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "student_package" / "scripts"))
+    from followup_masks import followups
+
+    expected = followups()
+    failures = []
+    paths = {}
+    tensor_hashes = {}
+    file_hashes = {}
+    patterns = {}
+    if pilot_hypercube_path is None:
+        failures.append("No pilot hypercube mask found")
+    else:
+        patterns["hypercube"] = load_saved_tensor(pilot_hypercube_path)
+
+    for name in NEW_MASKS:
+        path = args.mask_dir / f"{name}.pt"
+        if not path.is_file():
+            failures.append(f"Missing new mask: {path}")
+            continue
+        try:
+            tensor = load_saved_tensor(path)
+        except Exception as exc:
+            failures.append(f"Cannot load {path}: {exc}")
+            continue
+        if tensor.dtype != torch.bool or tuple(tensor.shape) != (12, LENGTH, LENGTH):
+            failures.append(f"Wrong dtype/shape for {name}: {tensor.dtype}, {tuple(tensor.shape)}")
+            continue
+        if not torch.equal(tensor, tensor[:1].expand_as(tensor)):
+            failures.append(f"{name} differs across heads")
+        pattern = tensor[0]
+        if not pattern.diagonal().all() or not torch.equal(pattern, pattern.T):
+            failures.append(f"{name} lacks self-loops or symmetry")
+        if not bool((pattern.sum(-1) == 8).all()) or not bool(pattern.diagonal(offset=1).all()):
+            failures.append(f"{name} is not a degree-8 adjacent-token placement")
+        if not torch.equal(pattern, torch.from_numpy(expected[name])):
+            failures.append(f"{name} differs from the supplied generator")
+        for other, previous in patterns.items():
+            if torch.equal(pattern, previous):
+                failures.append(f"{name} duplicates {other}")
+        patterns[name] = pattern
+        paths[name] = path
+        tensor_hashes[name] = hashlib.sha256(tensor.contiguous().numpy().tobytes()).hexdigest()
+        file_hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    return {
+        "passed": not failures and len(paths) == len(NEW_MASKS),
+        "checked_mask_files": len(paths),
+        "reference_paths": {name: str(path) for name, path in paths.items()},
+        "tensor_sha256": tensor_hashes,
+        "file_sha256": file_hashes,
+        "failures": failures,
+    }, paths
 
 
 def test_batch(config, device, length=60):
@@ -242,7 +299,7 @@ def check_blocked_probabilities(model, ids, padding, reference_paths, args):
             "nonfinite_probabilities": nonfinite,
             "max_valid_row_sum_error": max_row_sum_error,
         }
-    missing = [name for name in MASKS if name not in results]
+    missing = [name for name in MASKS + NEW_MASKS if name not in results]
     return {"passed": not missing and all(case["passed"] for case in results.values()),
             "cases": results, "missing_mask_types": missing}
 
@@ -316,11 +373,17 @@ def main():
     }
     checks = report["checks"]
     reference_paths = {}
+    new_reference_paths = {}
     def mask_audit():
         result, paths = check_pilot_masks(args)
         reference_paths.update(paths)
         return result
     run_check(checks, "pilot_masks_and_cross_task_equality", mask_audit)
+    def new_mask_audit():
+        result, paths = check_new_masks(args, reference_paths.get("hypercube"))
+        new_reference_paths.update(paths)
+        return result
+    run_check(checks, "new_masks", new_mask_audit)
 
     try:
         model = RobertaForSequenceClassification.from_pretrained(
@@ -349,7 +412,7 @@ def main():
         run_check(checks, "dense_equals_all_ones", lambda: check_all_ones(model, ids, padding, args))
         full_ids, full_padding = test_batch(model.config, device, length=LENGTH)
         run_check(checks, "blocked_probabilities", lambda: check_blocked_probabilities(
-            model, full_ids, full_padding, reference_paths, args))
+            model, full_ids, full_padding, {**reference_paths, **new_reference_paths}, args))
         if "circulant" in reference_paths:
             run_check(checks, "circulant_60_tokens", lambda: check_circulant(
                 model, ids, padding, reference_paths["circulant"], args))
@@ -362,7 +425,7 @@ def main():
     finally:
         sparse.GLOBAL_SPARSE_MASK = None
 
-    report["passed"] = len(checks) == 4 and all(check["passed"] for check in checks.values())
+    report["passed"] = len(checks) == 5 and all(check["passed"] for check in checks.values())
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     print(f"Overall: {'PASS' if report['passed'] else 'FAIL'}; report: {args.report}")
