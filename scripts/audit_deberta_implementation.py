@@ -217,7 +217,7 @@ def main():
             raise ValueError("Expected eager attention and relative-only position encoding")
         if model.deberta.embeddings.position_embeddings is not None or config.num_labels < 2:
             raise ValueError("Unexpected embeddings or classification head")
-        probe = torch.randn(2, 5, config.hidden_size, device=device)
+        probe = torch.randn(2, 5, config.hidden_size, device=device, dtype=model.pooler.dense.weight.dtype)
         altered = probe.clone()
         altered[:, 1:] += 10
         position_zero_only = torch.equal(model.pooler(probe), model.pooler(altered))
