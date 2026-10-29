@@ -10,6 +10,7 @@ from scripts.check_deberta_rtd_auroc import RTDHead, count_unigrams, make_valida
 class Tokenizer:
     all_special_ids = [0, 1, 2]
     pad_token_id = 0
+    cls_token_id = 1
     sep_token_id = 2
 
     def __call__(self, texts, add_special_tokens=False):
@@ -18,13 +19,6 @@ class Tokenizer:
 
     def num_special_tokens_to_add(self, pair=False):
         return 2
-
-    def build_inputs_with_special_tokens(self, ids):
-        return [1, *ids, 2]
-
-    def get_special_tokens_mask(self, ids, already_has_special_tokens=False):
-        return [1, *([0] * len(ids)), 1]
-
 
 class RTDAurocTests(unittest.TestCase):
     def test_head_uses_position_zero_for_each_token(self):
@@ -57,6 +51,8 @@ class RTDAurocTests(unittest.TestCase):
         self.assertTrue(np.all(inputs[eligible] >= 3))
         self.assertFalse(labels[~eligible].any())
         self.assertTrue(padding[:, 0].all())
+        self.assertTrue((inputs[:, 0] == tokenizer.cls_token_id).all())
+        self.assertTrue((inputs[:, -1] == tokenizer.sep_token_id).all())
 
 
 if __name__ == "__main__":

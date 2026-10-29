@@ -76,7 +76,9 @@ def make_validation_inputs(split, tokenizer, counts, seed, length=128):
     special = set(tokenizer.all_special_ids)
     tokens = [token for batch in token_batches(split, tokenizer) for row in batch
               for token in row if token not in special]
-    content_length = length - tokenizer.num_special_tokens_to_add(pair=False)
+    if tokenizer.num_special_tokens_to_add(pair=False) != 2:
+        raise ValueError("Expected [CLS] tokens [SEP] from the DeBERTa tokenizer")
+    content_length = length - 2
     if not tokens or content_length <= 0:
         raise ValueError("No validation tokens or invalid window length")
     windows = [tokens[start:start + content_length] for start in range(0, len(tokens), content_length)]
@@ -84,13 +86,10 @@ def make_validation_inputs(split, tokenizer, counts, seed, length=128):
     padding = np.zeros(original.shape, dtype=bool)
     eligible = np.zeros(original.shape, dtype=bool)
     for index, content in enumerate(windows):
-        ids = tokenizer.build_inputs_with_special_tokens(content)
-        special_mask = tokenizer.get_special_tokens_mask(content, already_has_special_tokens=False)
-        if len(ids) != len(special_mask) or len(ids) > length:
-            raise ValueError("Unexpected tokenizer special-token layout")
+        ids = [tokenizer.cls_token_id, *content, tokenizer.sep_token_id]
         original[index, :len(ids)] = ids
         padding[index, :len(ids)] = True
-        eligible[index, :len(ids)] = np.logical_not(special_mask)
+        eligible[index, 1:1 + len(content)] = True
 
     rng = np.random.default_rng(seed)
     positions = np.flatnonzero(eligible)
