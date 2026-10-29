@@ -378,7 +378,7 @@ def main():
                     elif not (output / "result.json").exists() and args.retry_crashed:
                         archive = output.with_name(output.name + f"_crashed_{time.time_ns()}")
                         output.rename(archive)
-                        print(f"Retrying seed {seed}; report this crash to the professor. Preserved: {archive}")
+                        print(f"Retrying seed {seed}. Preserved: {archive}")
                     else:
                         raise FileExistsError(f"Keeping {output}; use --skip-completed or --retry-crashed")
                 if not output.exists():
@@ -397,7 +397,7 @@ def main():
                         with results.open("a") as file:
                             file.write(json.dumps(row, allow_nan=False) + "\n")
                 if args.checkpoint1 and json.loads((output / "run_summary.json").read_text())["degenerate"]:
-                    raise SystemExit("Dense DeBERTa collapsed. Results are preserved; stop and tell the professor.")
+                    raise SystemExit("Dense DeBERTa collapsed. Results are preserved.")
 
 
 if __name__ == "__main__":
