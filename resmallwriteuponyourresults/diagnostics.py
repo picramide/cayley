@@ -77,7 +77,16 @@ def valid_density(mask, lengths):
 def lengths(args):
     from transformers import AutoTokenizer
     from masks import hypercube, cayley_Zn
+    from followup_masks import followups
     tok = AutoTokenizer.from_pretrained(args.model)
+    tokenizer_name = type(tok).__name__.lower()
+    if tokenizer_name.startswith("roberta"):
+        model_name, separator_index = "roberta", 1
+    elif tokenizer_name.startswith("deberta"):
+        model_name, separator_index = "deberta", 0
+    else:
+        raise ValueError(f"Unsupported tokenizer: {type(tok).__name__}")
+    new_masks = followups()
     out = {}
     for task in FIELDS:
         dev = load_dev(args.glue, task)
@@ -86,9 +95,8 @@ def lengths(args):
             ids = encode(tok, ex, task)["input_ids"]
             L.append(len(ids))
             if FIELDS[task][1]:
-                # RoBERTa pair format: <s> A </s></s> B </s>; B starts after the 2nd </s>
                 sep = [i for i, t in enumerate(ids) if t == tok.sep_token_id]
-                seg2.append(sep[1] + 1 if len(sep) >= 2 else len(ids))
+                seg2.append(sep[separator_index] + 1 if len(sep) > separator_index else len(ids))
         L = np.array(L)
         rec = dict(n=len(L), mean=float(L.mean()), median=float(np.median(L)), p90=float(np.percentile(L, 90)),
                    frac_len_gt_37=float((L > 37).mean()), frac_truncated=float((L >= 128).mean()))
@@ -98,12 +106,13 @@ def lengths(args):
         # Count only valid-token pairs; BigBird is averaged over its 12 saved heads.
         ms = pilot_masks(args.masks or PILOT_MASK_DIR, task)
         ms["hypercube_gray"] = hypercube(labeling="gray")
+        ms.update({name: new_masks[name] for name in ("hypercube_hampath0", "hypercube_hampath1", "hypercube_hampath2")})
         ms["dyadic"] = cayley_Zn([1, 2, 4, 8, 16, 32, 64])
         rec["valid_density"] = {k: valid_density(A, L) for k, A in ms.items()}
         rec["frac_len_le_17"] = float((L <= 17).mean())
         out[task] = rec
         print(task, json.dumps(rec))
-    write_result("length_stats.json", out)
+    write_result(f"length_stats_{model_name}.json", out)
 
 
 def retained(args):
