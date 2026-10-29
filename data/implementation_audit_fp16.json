@@ -1,34 +1,159 @@
 {
   "model": "/home/22cs30008/offline/models/roberta-base",
-  "mask_dir": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks",
-  "pilot_results": "/scratch/scratch26/22cs30008/res/results/benchmark_all.jsonl",
+  "mask_dir": "/home/22cs30008/cayley/masks",
   "device": "cuda",
   "gpu": "Tesla V100-PCIE-16GB",
   "precision": "fp16",
   "torch_version": "2.6.0+cu124",
   "transformers_version": "5.16.1",
   "checks": {
-    "pilot_masks_and_cross_task_equality": {
+    "masks_and_cross_task_equality": {
       "passed": true,
-      "checked_mask_files": 48,
-      "reference_paths": {
-        "local": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_local.pt",
-        "hypercube": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_hypercube.pt",
-        "circulant": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_circulant.pt",
-        "window_dilations": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_window_dilations.pt",
-        "random_circulant": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_random_circulant.pt",
-        "bigbird": "/scratch/scratch26/22cs30008/res/outputs/benchmark_all/masks/cola_bigbird.pt"
-      },
-      "tensor_sha256": {
-        "local": "859c31a8dc22eeda646c8080a62ec4ac9c4d2c096914c5d0f34554d9a521540e",
-        "hypercube": "a8b3acbb6f85c2952d5118a68cf4fcf73af0e47aafb481ac38753fe8481d7d9e",
-        "circulant": "5d0cb9d1f7a312d18dee6e4243c291726ef6ff090d6bbfd4debb0449a83802b4",
-        "window_dilations": "ac2cd09714162db1cd14bb0373926962a039e8aed597bfb06e8a8e36eace2fe2",
-        "random_circulant": "d1f78fe81e1229097e5a8a6632e1096b7557f52a194871cfd513200eabb0785c",
-        "bigbird": "9a23072c25f89ccbfb252c044bef44c4c8772a3610461ff2318bef3ad4919a38"
-      },
-      "duplicates": [],
-      "failures": []
+      "checked_mask_files": 52,
+      "cases": {
+        "local": {
+          "passed": true,
+          "checked_mask_files": 8,
+          "reference_path": "/home/22cs30008/cayley/masks/cola_local.pt",
+          "tensor_sha256": "859c31a8dc22eeda646c8080a62ec4ac9c4d2c096914c5d0f34554d9a521540e",
+          "file_sha256": {
+            "cola_local.pt": "49aa65688f31d1693a22edbef1b51d2b04bf5b01c2aa5fc634ea6e1e997a07c6",
+            "sst2_local.pt": "4a4cff8c0445ead020f7062abebf615537784be4fdb4f0a59d0a15f21ce9aae4",
+            "stsb_local.pt": "2b61832c6950c3b1565c1ba147504a8a97c88368af5cb099c1f4dc86d7146dc5",
+            "rte_local.pt": "fd07b19776f49f5c585f4397d6967e99a702e9ca01e4c1867c44da19ef7584b7",
+            "mrpc_local.pt": "75f8c71c15b60b63c63afcfa5deed03dcc69f2a73976de7d16b08bfa7aed49e6",
+            "qqp_local.pt": "78ee2b346f18245e847fee0fed39038b0c0f3c193f58197eea795ed96db2815f",
+            "mnli_local.pt": "10bfde2ed3e1950806d7c8d2c3eaeb1bdcc6408404b259b6c00dec049edbefe0",
+            "qnli_local.pt": "2f5cf080b28659f10fd5950391fb813cf8b8b7e5acf8b572f2805d96391a9110"
+          },
+          "failures": []
+        },
+        "hypercube": {
+          "passed": true,
+          "checked_mask_files": 8,
+          "reference_path": "/home/22cs30008/cayley/masks/cola_hypercube.pt",
+          "tensor_sha256": "a8b3acbb6f85c2952d5118a68cf4fcf73af0e47aafb481ac38753fe8481d7d9e",
+          "file_sha256": {
+            "cola_hypercube.pt": "8d1e89cec1305e90a04a4eca4c0fc2d98c4cf1b9c309c72a838c1e4010edc86e",
+            "sst2_hypercube.pt": "feceabfbc0850e951d95ea5583d827ad62bcdc21901877facc49485056f60bdb",
+            "stsb_hypercube.pt": "f078e5fed04284ed8a76a0cbe37b51a803e73180800ab3807b3e75d5d151cb8c",
+            "rte_hypercube.pt": "6a2fbbb77de24133b5c5f2681d40debf79d6a5a178779a111fdc4c7c27801af7",
+            "mrpc_hypercube.pt": "d8da9527866780578eec50016b8e5d9b977a80be463d17356ab00203615f6113",
+            "qqp_hypercube.pt": "bcfba0e1898ee9b34a6ce1de03df709a25bbf04f0ad16e21666219b1e1bf66fb",
+            "mnli_hypercube.pt": "d564c7683eead8af77fd5dfe2ef0719321876017db24793875a0c501cea3697e",
+            "qnli_hypercube.pt": "7a4cfe1ad9a0af36d1feaf31c816284af84f64b50d628d1d78a46932a74a3eec"
+          },
+          "failures": []
+        },
+        "circulant": {
+          "passed": true,
+          "checked_mask_files": 8,
+          "reference_path": "/home/22cs30008/cayley/masks/cola_circulant.pt",
+          "tensor_sha256": "5d0cb9d1f7a312d18dee6e4243c291726ef6ff090d6bbfd4debb0449a83802b4",
+          "file_sha256": {
+            "cola_circulant.pt": "f424cbcde7f6f9d471d639c4a21d67fe9299adc383d4fc7dbc15a4d231d789b8",
+            "sst2_circulant.pt": "864c6ed637ab18925fb0d79a9ded14041f8e49a57e66b9c014680ceee7570acd",
+            "stsb_circulant.pt": "0eaa6ec2c81cdddc5e461f76b844ac5e2ffd5feaedb8b1644679ce094a76332b",
+            "rte_circulant.pt": "60e54e996a1b4a2820f1bb6219df1125a72e4f905c97076e5faa92b9fcc5cf47",
+            "mrpc_circulant.pt": "f5abb0923c2f40e30125d691d04fcdaf9f108a722be488a70d86fe0f1da2703d",
+            "qqp_circulant.pt": "0036cb017c3d5a1774ffc9c8c32e74962afdf02b31bf717785c48619e7d368b9",
+            "mnli_circulant.pt": "335cab8e4db055bae51a3a7a8898370cff5c289a1bcc5fc3ce80d0fd3c0f354a",
+            "qnli_circulant.pt": "b229aa7e2286984a32d7b29b7d04833c474d0fa87d76f031bba15dd124a3cfc6"
+          },
+          "failures": []
+        },
+        "window_dilations": {
+          "passed": true,
+          "checked_mask_files": 8,
+          "reference_path": "/home/22cs30008/cayley/masks/cola_window_dilations.pt",
+          "tensor_sha256": "ac2cd09714162db1cd14bb0373926962a039e8aed597bfb06e8a8e36eace2fe2",
+          "file_sha256": {
+            "cola_window_dilations.pt": "8e6ad105c04e00a36ae5f1883a8110fab90de621779214340f232cef6a4a79a4",
+            "sst2_window_dilations.pt": "c018e12bf2dd837a1160016feb52259e177375deeaddabd1c55feb4260bab275",
+            "stsb_window_dilations.pt": "086e024c85f40b84363a7206ca5c5b4a3f4933d5de6c250525474aa374d8c0c8",
+            "rte_window_dilations.pt": "061796a45872c0e9b235f4f170769271ae66df560ef9aab872237e4952f72be0",
+            "mrpc_window_dilations.pt": "f37accc3025da5aedfb1d50f41a7670d4110742f7cdb77ef2451fa518a9202e8",
+            "qqp_window_dilations.pt": "2954782db702eea7b283cee44cc9e42d512b847029a6f1c651471ef701102ace",
+            "mnli_window_dilations.pt": "83faffe43c31ba1ddd38f7e15abb07702cf28145ed0e07066323696f54fd4605",
+            "qnli_window_dilations.pt": "100a470badeeae08078d723d809dc399f55277974bc44051e11f4e8a64aa1f3a"
+          },
+          "failures": []
+        },
+        "random_circulant": {
+          "passed": true,
+          "checked_mask_files": 8,
+          "reference_path": "/home/22cs30008/cayley/masks/cola_random_circulant.pt",
+          "tensor_sha256": "d1f78fe81e1229097e5a8a6632e1096b7557f52a194871cfd513200eabb0785c",
+          "file_sha256": {
+            "cola_random_circulant.pt": "c51e7bd82277b7d6627cd77e21286c7b93cfcb4404f97b6939cf2b74e757f5be",
+            "sst2_random_circulant.pt": "4aef69145a81c6d55ff6a34882f601a46585cbe2aa5fc88078a55befcb2ccb49",
+            "stsb_random_circulant.pt": "e67ecc6688bfa8c02afb50cf2dd2863a3ee3f1c2f315009aeb8555568e146af7",
+            "rte_random_circulant.pt": "bd829f9cc5faf6d8a835547953b30370717af54c730ae981664738b8464a0d0d",
+            "mrpc_random_circulant.pt": "b54579da81ca51608dbaa0dd7015ddaab001bb9c879d0dba76437aca2dde36bc",
+            "qqp_random_circulant.pt": "58eb4cab7b21c3773e1ebd3d8b0bd123458b5879362674d5235d14906504ee9b",
+            "mnli_random_circulant.pt": "9c2dae3fe0373142e414dae8a0ae23512c8111dca699e665bfe3a3be3082e477",
+            "qnli_random_circulant.pt": "8603183cc68abe03aa3080346d862865d798efd3c55900c738a264f758d75409"
+          },
+          "failures": []
+        },
+        "bigbird": {
+          "passed": true,
+          "checked_mask_files": 8,
+          "reference_path": "/home/22cs30008/cayley/masks/cola_bigbird.pt",
+          "tensor_sha256": "9a23072c25f89ccbfb252c044bef44c4c8772a3610461ff2318bef3ad4919a38",
+          "file_sha256": {
+            "cola_bigbird.pt": "384499b243e65fd3f8d260e3cda9c7c3d94df0dbc2d58d464cac2c41d6f96c39",
+            "sst2_bigbird.pt": "ee9cf1b342eb2c8021f69f2d471b4a14c741460207cbcbf766279b9fe2e8b18a",
+            "stsb_bigbird.pt": "d36bd7011a1819d6e01d2fc7900cedd5f2e5c68b3a885b91a4b357cd713c51af",
+            "rte_bigbird.pt": "022d2e13986c1992d2ff09aedefeec3558e0c888a013078ae972fe9d351a8d89",
+            "mrpc_bigbird.pt": "4fc24d8389cb1d83d1cac896525416d94e7f60579a083321a09e17e928490229",
+            "qqp_bigbird.pt": "84d0cf35bc86965a0d4b999f17b255e4d3e967076ddb6b297f2bd5ffba759f4e",
+            "mnli_bigbird.pt": "c7db8e0c1940e3a739318918e8f79f1846deb5302f5540b8227b8b3843dd6e6a",
+            "qnli_bigbird.pt": "2eba1456b3d3387d89306ab7fa7351c18ffba829deb35a68a7f63d3f647a013f"
+          },
+          "failures": []
+        },
+        "hypercube_gray": {
+          "passed": true,
+          "checked_mask_files": 1,
+          "reference_path": "/home/22cs30008/cayley/masks/hypercube_gray.pt",
+          "tensor_sha256": "8dc7ea562a6a3c6c765c92596026a7dc148aa535f0e50e4905e99889c9d1a996",
+          "file_sha256": {
+            "hypercube_gray.pt": "d7531ca56ab811db4bf4c5b81b4d90bede8aeabe662a1005f59cd92ea002ab7c"
+          },
+          "failures": []
+        },
+        "hypercube_hampath0": {
+          "passed": true,
+          "checked_mask_files": 1,
+          "reference_path": "/home/22cs30008/cayley/masks/hypercube_hampath0.pt",
+          "tensor_sha256": "ae6d3b8a085bb9c8d556fc092c13aa44ea8bd2fcf3a19793ffe566639cf2729e",
+          "file_sha256": {
+            "hypercube_hampath0.pt": "1be7f2402adc700b7ff5f86279f09fbd756232d250529bb309c542e6b52cd2ef"
+          },
+          "failures": []
+        },
+        "hypercube_hampath1": {
+          "passed": true,
+          "checked_mask_files": 1,
+          "reference_path": "/home/22cs30008/cayley/masks/hypercube_hampath1.pt",
+          "tensor_sha256": "4d74aba7d36b175c918d0e39b303d8435a0ae5e262a10cd37b17833e5854221d",
+          "file_sha256": {
+            "hypercube_hampath1.pt": "e915650bae45bfad1a9d38b9133495d9a5394c7beaca6a542b2d3e3fb1d4e897"
+          },
+          "failures": []
+        },
+        "hypercube_hampath2": {
+          "passed": true,
+          "checked_mask_files": 1,
+          "reference_path": "/home/22cs30008/cayley/masks/hypercube_hampath2.pt",
+          "tensor_sha256": "5a77db327fd5dcb59cba7cec0d1ecd8821599ebdcae4bc3664479d554c7a9c31",
+          "file_sha256": {
+            "hypercube_hampath2.pt": "8aedae1c2b1ce3f5611b28f62a4896778ffea8dd6e6ddc18133b3e3406ccf716"
+          },
+          "failures": []
+        }
+      }
     },
     "dense_equals_all_ones": {
       "passed": true,
@@ -93,6 +218,34 @@
           "blocked_probabilities_nonzero": 0,
           "nonfinite_probabilities": 0,
           "max_valid_row_sum_error": 2.980232238769531e-07
+        },
+        "hypercube_gray": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
+        },
+        "hypercube_hampath0": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
+        },
+        "hypercube_hampath1": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
+        },
+        "hypercube_hampath2": {
+          "passed": true,
+          "layers_captured": 12,
+          "blocked_probabilities_nonzero": 0,
+          "nonfinite_probabilities": 0,
+          "max_valid_row_sum_error": 2.384185791015625e-07
         }
       },
       "missing_mask_types": []
