@@ -187,7 +187,8 @@ class StudyTrainer(Trainer):
         return super().prediction_step(*args, **kwargs)
 
     def _load_best_model(self):
-        best = type(self.model).from_pretrained(self.state.best_model_checkpoint, local_files_only=True, attn_implementation="eager")
+        best = type(self.model).from_pretrained(self.state.best_model_checkpoint, local_files_only=True,
+                                               attn_implementation="eager", dtype=torch.float32)
         self.model.load_state_dict(best.state_dict(), strict=True)
 
 
@@ -223,7 +224,7 @@ def run_one(args, name, seed, tokenizer, dataset, split, mask, mask_hash, output
     model = MODELS[args.model].from_pretrained(
         args.model_path, num_labels=config["num_labels"], ignore_mismatched_sizes=True,
         problem_type="regression" if config["is_regression"] else "single_label_classification",
-        local_files_only=True, attn_implementation="eager",
+        local_files_only=True, attn_implementation="eager", dtype=torch.float32,
     )
     head = hashlib.sha256()
     for key, value in model.state_dict().items():
@@ -246,7 +247,8 @@ def run_one(args, name, seed, tokenizer, dataset, split, mask, mask_hash, output
     dirty = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True)
     write_json(output / "run_config.json", dict(
         model=args.model, model_path=str(args.model_path), task=args.task, mask=name, condition=args.condition,
-        seed=seed, precision=args.precision, max_length=128, training_args=training_args.to_dict(),
+        seed=seed, precision=args.precision, parameter_dtype=str(model.dtype), max_length=128,
+        training_args=training_args.to_dict(),
         split_path=str(split_path), split_sha256=hashlib.sha256(split_path.read_bytes()).hexdigest(),
         mask_sha256=mask_hash, initial_head_sha256=head.hexdigest(),
         git_commit=revision.stdout.strip(), git_dirty=bool(dirty.stdout.strip()),

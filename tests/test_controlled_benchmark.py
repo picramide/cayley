@@ -114,7 +114,7 @@ class ControlledBenchmarkTests(unittest.TestCase):
             datasets = {"train": encoded, "validation": encoded.select(range(4))}
             for model_name in study.MODELS:
                 model_path = root / model_name
-                initial = tiny_model(model_name)
+                initial = tiny_model(model_name).half()
                 (initial.deberta if model_name == "deberta" else initial).save_pretrained(model_path)
                 heads, orders, steps = [], [], []
                 for condition in ("P", "S", "S+", "G"):
@@ -133,9 +133,23 @@ class ControlledBenchmarkTests(unittest.TestCase):
 
                     def check_restore(trainer):
                         original_load(trainer)
+                        self.assertEqual({parameter.dtype for parameter in trainer.model.parameters()}, {torch.float32})
                         expected = type(trainer.model).from_pretrained(trainer.state.best_model_checkpoint)
                         for key, value in trainer.model.state_dict().items():
                             torch.testing.assert_close(value.cpu(), expected.state_dict()[key], rtol=0, atol=0)
+                        if condition == "P":
+                            optimizer = torch.optim.AdamW(expected.parameters(), lr=2e-5)
+                            scaler = torch.amp.GradScaler("cpu", init_scale=128.0)
+                            ids = torch.tensor([[0, 4, 5, 2], [0, 6, 2, 1]])
+                            with torch.autocast("cpu", dtype=torch.float16):
+                                loss = expected(input_ids=ids, attention_mask=ids.ne(1).long(), labels=torch.tensor([0, 1])).loss
+                            scaler.scale(loss).backward()
+                            scaler.unscale_(optimizer)
+                            norm = torch.nn.utils.clip_grad_norm_(expected.parameters(), 1.0)
+                            self.assertTrue(torch.isfinite(norm))
+                            self.assertEqual({p.grad.dtype for p in expected.parameters() if p.grad is not None}, {torch.float32})
+                            scaler.step(optimizer)
+                            scaler.update()
 
                     calls = []
 
@@ -160,6 +174,7 @@ class ControlledBenchmarkTests(unittest.TestCase):
                     self.assertTrue(all(isinstance(row["pred"], int) for row in rows))
                     heads.append(json.loads((output / "run_config.json").read_text())["initial_head_sha256"])
                     saved_args = json.loads((output / "run_config.json").read_text())["training_args"]
+                    self.assertEqual(json.loads((output / "run_config.json").read_text())["parameter_dtype"], "torch.float32")
                     self.assertEqual(saved_args["warmup_steps"], 0 if condition == "P" else (6 if condition == "S+" else 2))
                     orders.append(order[:5])
                     steps.append(state["global_step"])
