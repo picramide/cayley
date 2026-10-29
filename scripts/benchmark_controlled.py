@@ -342,7 +342,7 @@ def main():
     parser.add_argument("--precision", choices=("fp16", "fp32"), default="fp16")
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--data-root", type=Path, default=Path.home() / "offline" / "glue")
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "runs")
+    parser.add_argument("--output-dir", type=Path, default=Path("/scratch/scratch26/22cs30008/res/outputs/runs"))
     parser.add_argument("--skip-completed", action="store_true")
     parser.add_argument("--retry-crashed", action="store_true")
     parser.add_argument("--checkpoint1", action="store_true")
