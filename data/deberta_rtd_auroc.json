@@ -1,0 +1,16 @@
+{
+  "model": "/home/22cs30008/offline/models/deberta-v3-base",
+  "wikitext": "/home/22cs30008/offline/wikitext-103-raw-v1",
+  "device": "cuda",
+  "precision": "fp32",
+  "attention": "dense",
+  "replacement_fraction": 0.15,
+  "seed": 42,
+  "window_length": 128,
+  "windows": 1832,
+  "training_tokens": 109788575,
+  "eligible_validation_tokens": 230804,
+  "selected_for_replacement": 34621,
+  "actually_replaced": 34319,
+  "auroc": 0.8886780738067297
+}
